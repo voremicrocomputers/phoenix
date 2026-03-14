@@ -1,0 +1,6 @@
+extern fn puts(&char) -> isize;
+
+fn _start() {
+    &char strvar = "hello world";
+    puts(strvar);
+}
