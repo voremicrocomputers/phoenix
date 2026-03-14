@@ -1,7 +1,14 @@
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
-pub enum Token {
+pub struct Token {
+    pub data: TokenData,
+    pub line: usize,
+    pub character: usize,
+}
+
+#[derive(Clone, Debug)]
+pub enum TokenData {
     // ->
     Arrow,
     // ++
@@ -81,7 +88,7 @@ pub enum Token {
     // '<character>'
     CharacterLiteral(char),
     // <0-9>...
-    NumberLiteral(usize),
+    NumberLiteral(isize),
     // <A-z or _>...
     Literal(String),
 }
@@ -105,32 +112,32 @@ pub fn is_whitespace(c: char) -> bool {
     c.is_whitespace()
 }
 
-pub fn double_token(c1: char, c2: char) -> Option<Token> {
+pub fn double_token(c1: char, c2: char) -> Option<TokenData> {
     match c1 {
-        _ if c1 == '-' && c2 == '>' => Some(Token::Arrow),
+        _ if c1 == '-' && c2 == '>' => Some(TokenData::Arrow),
         // handle repeated characters
         x if c1 == c2 => {
             match x {
-                '+' => Some(Token::Increment), // incr
-                '-' => Some(Token::Decrement), // decr
-                '=' => Some(Token::Equivalent), // equiv
-                '&' => Some(Token::BooleanAnd), // bool AND
-                '|' => Some(Token::BooleanOr), // bool OR
-                '^' => Some(Token::BooleanXor), // bool XOR
+                '+' => Some(TokenData::Increment), // incr
+                '-' => Some(TokenData::Decrement), // decr
+                '=' => Some(TokenData::Equivalent), // equiv
+                '&' => Some(TokenData::BooleanAnd), // bool AND
+                '|' => Some(TokenData::BooleanOr), // bool OR
+                '^' => Some(TokenData::BooleanXor), // bool XOR
                 _ => None,
             }
         }
         // handle things ending in =
         _ if c2 == '=' => {
             match c1 {
-                '!' => Some(Token::NotEqual), // !=
-                '<' => Some(Token::LessThanEqual), // <=
-                '>' => Some(Token::GreaterThanEqual), // >=
-                '+' => Some(Token::AddAssign), // +=
-                '-' => Some(Token::SubAssign), // -=
-                '*' => Some(Token::MulAssign), // *=
-                '/' => Some(Token::DivAssign), // /=
-                '%' => Some(Token::ModAssign), // %=
+                '!' => Some(TokenData::NotEqual), // !=
+                '<' => Some(TokenData::LessThanEqual), // <=
+                '>' => Some(TokenData::GreaterThanEqual), // >=
+                '+' => Some(TokenData::AddAssign), // +=
+                '-' => Some(TokenData::SubAssign), // -=
+                '*' => Some(TokenData::MulAssign), // *=
+                '/' => Some(TokenData::DivAssign), // /=
+                '%' => Some(TokenData::ModAssign), // %=
                 _ => None,
             }
         }
@@ -138,36 +145,36 @@ pub fn double_token(c1: char, c2: char) -> Option<Token> {
     }
 }
 
-pub fn single_token(c: char) -> Option<Token> {
+pub fn single_token(c: char) -> Option<TokenData> {
     match c {
-        '(' => Some(Token::OpenParenthesis),
-        ')' => Some(Token::CloseParenthesis),
+        '(' => Some(TokenData::OpenParenthesis),
+        ')' => Some(TokenData::CloseParenthesis),
 
-        '{' => Some(Token::OpenBody),
-        '}' => Some(Token::CloseBody),
+        '{' => Some(TokenData::OpenBody),
+        '}' => Some(TokenData::CloseBody),
 
-        '[' => Some(Token::OpenBracket),
-        ']' => Some(Token::CloseBracket),
+        '[' => Some(TokenData::OpenBracket),
+        ']' => Some(TokenData::CloseBracket),
 
-        '<' => Some(Token::LessThan),
-        '>' => Some(Token::GreaterThan),
+        '<' => Some(TokenData::LessThan),
+        '>' => Some(TokenData::GreaterThan),
 
-        ';' => Some(Token::Semicolon),
-        ',' => Some(Token::Comma),
-        ':' => Some(Token::Colon),
+        ';' => Some(TokenData::Semicolon),
+        ',' => Some(TokenData::Comma),
+        ':' => Some(TokenData::Colon),
 
-        '!' => Some(Token::Not),
-        '&' => Some(Token::Ampersand),
-        '|' => Some(Token::BitwiseOr),
-        '^' => Some(Token::BitwiseXor),
+        '!' => Some(TokenData::Not),
+        '&' => Some(TokenData::Ampersand),
+        '|' => Some(TokenData::BitwiseOr),
+        '^' => Some(TokenData::BitwiseXor),
 
-        '+' => Some(Token::Add),
-        '-' => Some(Token::Sub),
-        '*' => Some(Token::Mul),
-        '/' => Some(Token::Div),
-        '%' => Some(Token::Mod),
+        '+' => Some(TokenData::Add),
+        '-' => Some(TokenData::Sub),
+        '*' => Some(TokenData::Mul),
+        '/' => Some(TokenData::Div),
+        '%' => Some(TokenData::Mod),
 
-        '=' => Some(Token::Equal),
+        '=' => Some(TokenData::Equal),
         _ => None,
     }
 }
@@ -191,7 +198,11 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
         }
         if let Some(c2) = chars.pop_front() {
             if let Some(token) = double_token(c, c2) {
-                tokens.push(token);
+                tokens.push(Token {
+                    data: token,
+                    line,
+                    character,
+                });
                 character += 1;
                 continue;
             } else {
@@ -200,7 +211,11 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
         }
 
         if let Some(token) = single_token(c) {
-            tokens.push(token);
+            tokens.push(Token {
+                data: token,
+                line,
+                character,
+            });
         } else {
             match c {
                 '"' => {
@@ -223,7 +238,11 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                     }
                     // this is done here so that the error shows the opening quote
                     character += str.len() + 1;
-                    tokens.push(Token::StringLiteral(str));
+                    tokens.push(Token {
+                        data: TokenData::StringLiteral(str),
+                        line,
+                        character,
+                    });
                 }
                 '\'' => {
                     // character literal
@@ -246,7 +265,11 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                     }
                     // this is done here so that the error shows the opening quote
                     character += 2;
-                    tokens.push(Token::CharacterLiteral(clit));
+                    tokens.push(Token {
+                        data: TokenData::CharacterLiteral(clit),
+                        line,
+                        character,
+                    });
                 }
                 _ if c.is_ascii_digit() => {
                     let mut digit_str = String::new();
@@ -260,8 +283,12 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                             break;
                         }
                     }
-                    let number: usize = digit_str.parse().expect("bad number literal somehow");
-                    tokens.push(Token::NumberLiteral(number));
+                    let number: isize = digit_str.parse().expect("bad number literal somehow");
+                    tokens.push(Token {
+                        data: TokenData::NumberLiteral(number),
+                        line,
+                        character,
+                    });
                 }
 
                 _ => {
@@ -276,7 +303,11 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                             break;
                         }
                     }
-                    tokens.push(Token::Literal(literalstr));
+                    tokens.push(Token {
+                        data: TokenData::Literal(literalstr),
+                        line,
+                        character,
+                    });
                 }
             }
         }
