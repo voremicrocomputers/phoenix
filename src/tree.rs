@@ -1,3 +1,8 @@
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::tokenize::{Token, TokenData};
+
 pub enum FType {
     BadType,
     Void,
@@ -8,21 +13,23 @@ pub enum FType {
 
 pub struct FElm {
     pub id: usize,
+    pub line: usize,
+    pub character: usize,
     pub data: FElmData,
 }
 
 pub enum FElmData {
     ToBeFilled,
-    Function(Box<FElmFunction>),
-    Closure(Box<FElmClosure>),
-    Call(Box<FElmCall>),
-    NumberLiteral,
-    StringLiteral,
-    ExternFunction,
-    VarRef,
-    VarDef,
-    UnaryExpression,
-    BinaryExpression,
+    Function(Arc<FElmFunction>),
+    Closure(Arc<FElmClosure>),
+    Call(Arc<FElmCall>),
+    NumberLiteral(Arc<FElmNumberLiteral>),
+    StringLiteral(Arc<FElmStringLiteral>),
+    ExternFunction(Arc<FElmExternFunction>),
+    VarRef(Arc<FElmVarRef>),
+    VarDef(Arc<FElmVarDef>),
+    UnaryExpression(Arc<FElmUnaryExpression>),
+    BinaryExpression(Arc<FElmBinaryExpression>),
 }
 
 pub struct FElmFunction {
@@ -97,6 +104,82 @@ pub struct FElmBinaryExpression {
     pub operator: Operator,
 }
 
-pub enum TreeErrorType {
+#[derive(Debug)]
+pub struct TreeError {
+    pub line: usize,
+    pub character: usize,
+    pub error: TreeErrorType,
+}
 
+#[derive(Debug)]
+pub enum TreeErrorType {
+    UnexpectedToken(TokenData),
+    ExpectedFollowingToken(&'static [&'static str])
+}
+
+pub fn next_id(idstate: &AtomicUsize) -> usize {
+    idstate.fetch_add(1, Ordering::Relaxed)
+}
+
+pub fn make_tree(tokens: Vec<Token>) -> Result<FElm, TreeError> {
+    let idstate = AtomicUsize::new(0);
+    // top level element will always be a closure
+    let mut tle = FElm {
+        id: next_id(&idstate),
+        line: 0,
+        character: 0,
+        data: FElmData::Closure(Arc::new(FElmClosure {
+            instructions: vec![],
+        })),
+    };
+
+    // parse tokens
+    let mut tokens = tokens.into_iter().collect::<VecDeque<_>>();
+
+    while let Some(token) = tokens.pop_front() {
+        match &token.data {
+            TokenData::Literal(lit) => {
+                match lit.as_str() {
+                    "extern" => {
+                        if let Some(TokenData::Literal(str)) = tokens.pop_front().map(|v| v.data) {
+                            match str.as_str() {
+                                "fn" => {
+
+                                }
+                                _ => {
+                                    return Err(TreeError {
+                                        line: token.line,
+                                        character: token.character,
+                                        error: TreeErrorType::UnexpectedToken(TokenData::Literal(str)),
+                                    })
+                                }
+                            }
+                        } else {
+                            return Err(TreeError {
+                                line: token.line,
+                                character: token.character,
+                                error: TreeErrorType::ExpectedFollowingToken(&["fn"]),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(TreeError {
+                            line: token.line,
+                            character: token.character,
+                            error: TreeErrorType::UnexpectedToken(token.data),
+                        });
+                    }
+                }
+            }
+            _ => {
+                return Err(TreeError {
+                    line: token.line,
+                    character: token.character,
+                    error: TreeErrorType::UnexpectedToken(token.data),
+                });
+            }
+        }
+    }
+
+    Ok(tle)
 }
