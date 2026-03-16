@@ -536,7 +536,29 @@ pub fn add_function(
     }
 
     // next token should be {
+    let openbody = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    match openbody.data {
+        TokenData::OpenBody => {}
+        x => {
+            return Err(TreeError {
+                line: openbody.line,
+                character: openbody.character,
+                error: TreeErrorType::UnexpectedToken(x),
+            });
+        }
+    }
     // todo: parse function body here
+    let bodyclosure = add_closure(tokens, idstate)?;
+    func.body = FElm {
+        id: next_id(idstate),
+        line: start_line,
+        character: start_character,
+        data: FElmData::Closure(Arc::new(bodyclosure)),
+    };
 
 
     closure.push(FElm {
@@ -547,6 +569,103 @@ pub fn add_function(
     });
 
     Ok(())
+}
+
+/// enter after "{"
+pub fn add_closure(
+    tokens: &mut VecDeque<Token>,
+    idstate: &AtomicUsize,
+) -> Result<FElmClosure, TreeError> {
+    let mut instructions = vec![];
+    let mut start_line = 0;
+    let mut start_character = 0;
+
+    while let Some(token) = tokens.pop_front() {
+        if start_line == 0 {
+            start_line = token.line;
+        }
+        if start_character == 0 {
+            start_character = token.character;
+        }
+
+        match &token.data {
+            TokenData::CloseBody => {
+                break;
+            }
+            TokenData::OpenBody => {
+                let closure = add_closure(tokens, idstate)?;
+                let elm = FElm {
+                    id: next_id(idstate),
+                    line: token.line,
+                    character: token.character,
+                    data: FElmData::Closure(Arc::new(closure)),
+                };
+                instructions.push(elm);
+            }
+            TokenData::Literal(lit) => match lit.as_str() {
+                "extern" => {
+                    if let Some(TokenData::Literal(str)) = tokens.pop_front().map(|v| v.data) {
+                        match str.as_str() {
+                            "fn" => {
+                                add_extern_function(tokens, idstate, &mut instructions)?;
+                            }
+                            _ => {
+                                return Err(TreeError {
+                                    line: token.line,
+                                    character: token.character,
+                                    error: TreeErrorType::UnexpectedToken(TokenData::Literal(str)),
+                                });
+                            }
+                        }
+                    } else {
+                        return Err(TreeError {
+                            line: token.line,
+                            character: token.character,
+                            error: TreeErrorType::ExpectedFollowingToken(&["fn"]),
+                        });
+                    }
+                }
+                "fn" => {
+                    add_function(tokens, idstate, &mut instructions)?;
+                }
+                _ => {
+                    let next = tokens.pop_front();
+                    if let Some(data) = next.as_ref().map(|v| &v.data) {
+                        match data {
+                            TokenData::OpenParenthesis => {
+                                // function call
+                            }
+                            TokenData::Equal => {
+                                // var assign
+                                // todo: handle opassigns
+                            }
+                            _ => {
+                                return Err(TreeError {
+                                    line: token.line,
+                                    character: token.character,
+                                    error: TreeErrorType::UnexpectedToken(token.data),
+                                });
+                            }
+                        }
+                    }
+                    return Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    });
+                }
+            },
+            _ => {
+                return Err(TreeError {
+                    line: token.line,
+                    character: token.character,
+                    error: TreeErrorType::UnexpectedToken(token.data),
+                });
+            }
+        }
+    }
+
+    todo!()
 }
 
 pub fn make_tree(tokens: Vec<Token>) -> Result<FElm, TreeError> {
@@ -584,7 +703,7 @@ pub fn make_tree(tokens: Vec<Token>) -> Result<FElm, TreeError> {
                     }
                 }
                 "fn" => {
-
+                    add_function(&mut tokens, &idstate, &mut instructions)?;
                 }
                 _ => {
                     return Err(TreeError {
