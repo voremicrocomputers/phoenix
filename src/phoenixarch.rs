@@ -9,10 +9,10 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::Dup,
     Opcode::Swap,
     Opcode::Rotate,
-    Opcode::PushVarN,
-    Opcode::SetVarN,
+    Opcode::Exchange,
+    Opcode::PushEmpty,
     Opcode::ConstString,
-    Opcode::CallUpper,
+    Opcode::CallOuter,
 ];
 
 #[repr(u8)]
@@ -35,23 +35,23 @@ pub enum Opcode {
     /// -
     /// B, A
     Swap = 3,
-    /// brings an element from further down the stack to the top
-    /// A, B, C
+    /// copies an element from further down the stack to the top
+    /// Rotate( N: u32 )
+    /// A, B, ..., <element N from bottom>
     /// -
-    /// C, A, B
+    /// <element N now at top>, A, B, ..., <element N from bottom>
     Rotate = 4,
-    /// takes the value in var N and pushes it to the stack
-    /// PushVarN( N: u8 )
+    /// takes the top element of the stack and moves it backwards into another stack cell
+    /// Exchange( N: u32 )
+    /// A, B, ..., <element N from bottom>
+    /// -
+    /// B, ..., <element N now == A, previous value lost>
+    Exchange = 5,
+    /// pushes an empty cell to the stack
     /// (intentionally left blank)
     /// -
-    /// <value in that var>
-    PushVarN = 5,
-    /// takes the value on the stack and puts it in var N
-    /// SetVarN( N: u8 )
-    /// <value>
-    /// -
-    /// (intentionally left blank)
-    SetVarN = 6,
+    /// <EMPTY ELEMENT>
+    PushEmpty = 6,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -60,11 +60,11 @@ pub enum Opcode {
     ConstString = 32,
     ///
     /// calls a function that was defined outside of the scope of the bytecode
-    /// CallUpper( FUNC_ID: u64 )
+    /// CallOuter( FUNC_ID: u64 )
     /// <argument N>, <argument N-1>, ..., <argument 2>, <argument 1>
     /// -
     /// <return value>
-    CallUpper = 128,
+    CallOuter = 128,
 }
 
 impl Opcode {
@@ -77,4 +77,41 @@ impl Opcode {
 
         None
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Instruction {
+    Nop,
+    Drop,
+    Dup,
+    Swap,
+    Rotate(u32),
+    Exchange(u32),
+    PushEmpty,
+    ConstString(u64),
+    CallOuter(u64),
+}
+
+impl Instruction {
+    pub fn opcode(&self) -> Opcode {
+        match self {
+            Instruction::Nop => Opcode::Nop,
+            Instruction::Drop => Opcode::Drop,
+            Instruction::Dup => Opcode::Dup,
+            Instruction::Swap => Opcode::Swap,
+            Instruction::Rotate(_) => Opcode::Rotate,
+            Instruction::Exchange(_) => Opcode::Exchange,
+            Instruction::PushEmpty => Opcode::PushEmpty,
+            Instruction::ConstString(_) => Opcode::ConstString,
+            Instruction::CallOuter(_) => Opcode::CallOuter,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub string_table: Vec<String>,
+    pub outer_function_table: Vec<String>,
+    pub inner_function_table: Vec<(String, usize)>,
+    pub functions: Vec<Vec<Instruction>>,
 }

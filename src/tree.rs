@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FType {
     BadType,
     Void,
@@ -34,7 +34,6 @@ pub struct FElm {
 
 #[derive(Debug)]
 pub enum FElmData {
-    ToBeFilled,
     Function(Arc<FElmFunction>),
     Closure(Arc<FElmClosure>),
     Call(Arc<FElmCall>),
@@ -547,7 +546,9 @@ pub fn add_function(
             id: 0,
             line: 0,
             character: 0,
-            data: FElmData::ToBeFilled,
+            data: FElmData::Closure(Arc::new(FElmClosure {
+                instructions: vec![],
+            })),
         },
     };
 

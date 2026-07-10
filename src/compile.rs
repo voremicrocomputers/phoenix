@@ -1,0 +1,423 @@
+use std::collections::BTreeMap;
+use crate::phoenixarch::{Instruction, Program};
+use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmVarDef, FType};
+
+pub struct VariableState {
+    pub ftype: FType,
+    pub ftype_ref: usize,
+    pub stack_idx: usize,
+}
+
+pub struct CompiledFunction {
+    pub label: String,
+    pub id: u64,
+    pub toplevel: bool,
+    pub args: Vec<FElmVarDef>, // doesn't use assigns
+    pub return_type: FType,
+    pub return_type_ref: usize,
+    pub instructions: Vec<Instruction>,
+}
+
+pub struct OuterFunction {
+    pub label: String,
+    pub args: Vec<FElmVarDef>, // doesn't use assigns
+    pub return_type: FType,
+    pub return_type_ref: usize,
+}
+
+pub struct CompilerState {
+    pub line: usize,
+    pub character: usize,
+
+    pub string_table: Vec<String>,
+    pub outer_function_table: Vec<(String, OuterFunction)>,
+    pub unique_function_lookup: BTreeMap<usize, String>,
+    pub scope_functions: Vec<(String, usize)>,
+    pub variables: Vec<(String, VariableState)>,
+    pub stack_idx: usize,
+}
+
+#[derive(Debug)]
+pub enum CompileErrorType {
+    TopLevelTreeElementIsNotCorrect,
+    InternalCompilerStackCorruption,
+    UnexpectedElementInClosure,
+    UnsupportedElementInExpression,
+    InternalCompilerStringTableError,
+    VariableNotFound(String),
+    ExpressionIsNotOfExpectedType((FType, usize), (FType, usize)), // (expected, actual)
+    IncorrectArgumentCount(usize, usize), // (expected, actual)
+}
+
+#[derive(Debug)]
+pub struct CompileError {
+    pub error_type: CompileErrorType,
+    pub line: usize,
+    pub character: usize,
+}
+
+fn unique_function_name(label: &str, id: usize) -> String {
+    format!("{}_{}", label, id)
+}
+
+fn evaluate_constant_strings(elm: &FElm) -> Result<Vec<String>, CompileError> {
+    match &elm.data {
+        FElmData::Function(func) => {
+            evaluate_constant_strings(&func.body)
+        }
+        FElmData::Closure(closure) => {
+            let mut strings = vec![];
+            for instruction in &closure.instructions {
+                strings.extend(evaluate_constant_strings(instruction)?);
+            }
+            Ok(strings)
+        }
+        FElmData::Call(call) => {
+            let mut strings = vec![];
+            for arg in &call.args {
+                strings.extend(evaluate_constant_strings(arg)?);
+            }
+            Ok(strings)
+        }
+        FElmData::NumberLiteral(_) => {
+            Ok(vec![])
+        }
+        FElmData::StringLiteral(str) => {
+            Ok(vec![str.value.clone()])
+        }
+        FElmData::CharLiteral(_) => {
+            Ok(vec![])
+        }
+        FElmData::ExternFunction(_) => {
+            Ok(vec![])
+        }
+        FElmData::VarRef(_) => {
+            Ok(vec![])
+        }
+        FElmData::VarDef(def) => {
+            if let Some(assign) = &def.assign {
+                evaluate_constant_strings(assign)
+            } else {
+                Ok(vec![])
+            }
+        }
+        FElmData::UnaryExpression(unary) => {
+            evaluate_constant_strings(&unary.alpha)
+        }
+        FElmData::BinaryExpression(binary) => {
+            let mut strings = vec![];
+            strings.extend(evaluate_constant_strings(&binary.alpha)?);
+            strings.extend(evaluate_constant_strings(&binary.beta)?);
+            Ok(strings)
+        }
+    }
+}
+
+/// THIS SHOULD ALWAYS LEAVE STACK IDX AS ORIGINAL STACK IDX + 1
+fn compile_expression(
+    state: &mut CompilerState,
+    elm: &FElm,
+    expected_type: FType,
+    expected_typeref: usize,
+) -> Result<Vec<Instruction>, CompileError> {
+    let mut instructions = vec![];
+    state.line = elm.line;
+    state.character = elm.character;
+
+    let original_stack_idx = state.stack_idx;
+
+    match &elm.data {
+        FElmData::NumberLiteral(_) => { todo!() }
+        FElmData::StringLiteral(str) => {
+            if !(expected_type == FType::Char && expected_typeref == 1) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::Char, 1)),
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+            let idx = state.string_table.iter().position(|v| v == &str.value)
+                .ok_or(CompileError {
+                    error_type: CompileErrorType::InternalCompilerStringTableError,
+                    line: state.line,
+                    character: state.character,
+                })?;
+            instructions.push(Instruction::ConstString(idx as u64));
+            state.stack_idx += 1;
+        }
+        FElmData::CharLiteral(_) => { todo!() }
+        FElmData::VarRef(var) => {
+            let variable_idx = state.variables.iter().rposition(|v| v.0 == var.value)
+                .ok_or(CompileError {
+                    error_type: CompileErrorType::VariableNotFound(var.value.clone()),
+                    line: state.line,
+                    character: state.character,
+                })?;
+            let (_, variable) = state.variables.get(variable_idx).unwrap();
+            if !(expected_type == variable.ftype && expected_typeref == variable.ftype_ref) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (variable.ftype, variable.ftype_ref)),
+                    line: state.line,
+                    character: state.character,
+                });
+            }
+
+            instructions.push(Instruction::Rotate(variable.stack_idx as u32));
+            state.stack_idx += 1;
+        }
+        FElmData::Call(_) => { todo!() }
+        FElmData::UnaryExpression(_) => { todo!() }
+        FElmData::BinaryExpression(_) => { todo!() }
+
+        _ => {
+            return Err(CompileError {
+                error_type: CompileErrorType::UnsupportedElementInExpression,
+                line: state.line,
+                character: state.character,
+            });
+        }
+    }
+
+    assert_eq!(state.stack_idx, original_stack_idx + 1);
+
+    Ok(instructions)
+}
+
+fn compile_vardef(
+    state: &mut CompilerState,
+    elm: &FElmVarDef,
+) -> Result<Vec<Instruction>, CompileError> {
+    let mut instructions = vec![];
+
+    // add the variable to the state
+    state.variables.push((elm.name.clone(), VariableState {
+        ftype: elm.ftype,
+        ftype_ref: elm.ftype_ref,
+        stack_idx: state.stack_idx,
+    }));
+
+    if let Some(assign) = &elm.assign {
+        instructions.extend(compile_expression(state, assign, elm.ftype, elm.ftype_ref)?);
+    } else {
+        instructions.push(Instruction::PushEmpty);
+        state.stack_idx += 1;
+    }
+
+    Ok(instructions)
+}
+
+/// boolean indicates if this call returns something
+fn compile_call(
+    state: &mut CompilerState,
+    elm: &FElmCall,
+) -> Result<(Vec<Instruction>, bool), CompileError> {
+    let mut instructions = vec![];
+    let mut has_return_value = false;
+    let original_stack_idx = state.stack_idx;
+
+    if let Some((label, elm_id)) = state.scope_functions.iter().rfind(|(name, _)| name == &elm.label) {
+        todo!("implement function calls")
+    } else if let Some((idx, (_, outer_func))) = state.outer_function_table.iter().enumerate().find(|(_, (name, _))| name == &elm.label) {
+        // verify arguments
+        if elm.args.len() != outer_func.args.len() {
+            return Err(CompileError {
+                error_type: CompileErrorType::IncorrectArgumentCount(outer_func.args.len(), elm.args.len()),
+                line: state.line,
+                character: state.character,
+            });
+        }
+        if !matches!(&outer_func.return_type, FType::Void) {
+            has_return_value = true;
+        }
+        let types = outer_func.args.iter().map(|v| (v.ftype, v.ftype_ref)).collect::<Vec<_>>();
+        for i in 0..elm.args.len() {
+            let ftype = types[i].0;
+            let ftype_ref = types[i].1;
+            let alpha = &elm.args[i];
+            instructions.extend(compile_expression(state, alpha, ftype, ftype_ref)?);
+        }
+        assert_eq!(state.stack_idx, original_stack_idx + elm.args.len());
+        instructions.push(Instruction::CallOuter(idx as u64));
+        state.stack_idx -= elm.args.len(); // all arguments were consumed
+        if has_return_value {
+            // one extra stack element for return value
+            state.stack_idx += 1;
+        }
+    }
+
+    Ok((instructions, has_return_value))
+}
+
+fn compile_closure(
+    state: &mut CompilerState,
+    functions: &mut BTreeMap<String, CompiledFunction>,
+    elm: &FElmClosure,
+) -> Result<Vec<Instruction>, CompileError> {
+    let mut instructions = vec![];
+
+    let original_stack_idx = state.stack_idx;
+
+    // evaluate scope functions
+    let scope_function_index = state.scope_functions.len();
+    for elm in &elm.instructions {
+        if let FElmData::Function(func) = &elm.data {
+            state.scope_functions.push((func.label.clone(), elm.id));
+        }
+    }
+
+    let variable_state_index = state.variables.len();
+
+    for elm in &elm.instructions {
+        state.line = elm.line;
+        state.character = elm.character;
+        match &elm.data {
+            FElmData::Function(func) => {
+                compile_function(state, functions, func, elm.id, false)?;
+            }
+            FElmData::Closure(clos) => {
+                instructions.extend(compile_closure(state, functions, clos,)?);
+            }
+            FElmData::VarDef(vardef) => {
+                instructions.extend(compile_vardef(state, vardef)?);
+            }
+            FElmData::Call(call) => {
+                let (ins, has_return_value) = compile_call(state, call)?;
+                instructions.extend(ins);
+                if has_return_value {
+                    instructions.push(Instruction::Drop); // we don't want the return value
+                    state.stack_idx -= 1;
+                }
+            }
+            /*
+            FElmData::NumberLiteral(_) => {}
+            FElmData::StringLiteral(_) => {}
+            FElmData::CharLiteral(_) => {}
+            FElmData::ExternFunction(_) => {}
+            FElmData::VarRef(_) => {}
+            FElmData::UnaryExpression(_) => {}
+            FElmData::BinaryExpression(_) => {}
+             */
+            _ => {
+                return Err(CompileError {
+                    error_type: CompileErrorType::UnexpectedElementInClosure,
+                    line: state.line,
+                    character: state.character,
+                });
+            }
+        }
+    }
+
+    // remove scope functions & variables
+    let _ = state.scope_functions.split_off(scope_function_index);
+    let _ = state.variables.split_off(variable_state_index);
+    // drop all added stack elements
+    // todo: this will need to be changed to support function returns
+    if state.stack_idx > original_stack_idx {
+        for _ in 0..(state.stack_idx - original_stack_idx) {
+            instructions.push(Instruction::Drop);
+        }
+    } else if state.stack_idx < original_stack_idx {
+        return Err(CompileError {
+            error_type: CompileErrorType::InternalCompilerStackCorruption,
+            line: state.line,
+            character: state.character,
+        });
+    }
+
+    Ok(instructions)
+}
+
+fn compile_function(
+    state: &mut CompilerState,
+    functions: &mut BTreeMap<String, CompiledFunction>,
+    elm: &FElmFunction,
+    elm_id: usize,
+    toplevel: bool,
+) -> Result<(), CompileError> {
+    let unique_label = unique_function_name(&elm.label, elm_id);
+    let func = CompiledFunction {
+        label: elm.label.clone(),
+        id: elm_id as u64,
+        toplevel,
+        args: elm.args.iter().map(|v| FElmVarDef {
+            ftype: v.ftype,
+            ftype_ref: v.ftype_ref,
+            name: v.name.clone(),
+            assign: None,
+        }).collect(),
+        return_type: elm.return_type,
+        return_type_ref: elm.return_type_ref,
+        instructions: if let FElmData::Closure(clos) = &elm.body.data {
+            state.line = elm.body.line;
+            state.character = elm.body.character;
+            compile_closure(state, functions, clos)?
+        } else {
+            return Err(CompileError {
+                error_type: CompileErrorType::UnexpectedElementInClosure,
+                line: state.line,
+                character: state.character,
+            });
+        },
+    };
+    functions.insert(unique_label, func);
+
+    Ok(())
+}
+
+pub fn compile(tree: FElm, implemented_outer_functions: Vec<(String, OuterFunction)>) -> Result<Program, CompileError> {
+    let mut state = CompilerState {
+        line: 0,
+        character: 0,
+        string_table: evaluate_constant_strings(&tree)?,
+        outer_function_table: implemented_outer_functions,
+        unique_function_lookup: Default::default(),
+        scope_functions: vec![],
+        variables: Default::default(),
+        stack_idx: 0,
+    };
+
+    let mut functions: BTreeMap<String, CompiledFunction> = BTreeMap::new();
+
+    match &tree.data {
+        FElmData::Closure(closure) => {
+            // evaluate scope functions
+            for elm in &closure.instructions {
+                if let FElmData::Function(func) = &elm.data {
+                    state.scope_functions.push((func.label.clone(), elm.id));
+                }
+            }
+
+            // add closure elements
+            for elm in &closure.instructions {
+                match &elm.data {
+                    FElmData::Function(func) => {
+                        compile_function(&mut state, &mut functions, func, elm.id, true)?;
+                    }
+                    _ => {
+                        return Err(CompileError {
+                            error_type: CompileErrorType::TopLevelTreeElementIsNotCorrect,
+                            line: elm.line,
+                            character: elm.character,
+                        });
+                    }
+                }
+            }
+        }
+        _ => {
+            return Err(CompileError {
+                error_type: CompileErrorType::TopLevelTreeElementIsNotCorrect,
+                line: 0,
+                character: 0,
+            });
+        }
+    }
+
+    let functions = functions.into_iter().collect::<Vec<_>>();
+
+    Ok(Program {
+        string_table: state.string_table,
+        outer_function_table: state.outer_function_table.iter().map(|v| v.0.clone()).collect(),
+        inner_function_table: functions.iter().enumerate().filter_map(|v| if v.1.1.toplevel { Some((v.1.0.clone(), v.0)) } else { None }).collect(),
+        functions: functions.into_iter().map(|v| v.1.instructions).collect(),
+    })
+}
