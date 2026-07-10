@@ -31,12 +31,12 @@ pub struct FunctionContext {
 pub struct PhoenixVMState<'a> {
     pub stack: Vec<PCell>,
     pub function_stack: Vec<FunctionContext>,
-    pub outer_functions: BTreeMap<String, &'a mut RTOuterFunction>,
+    pub outer_functions: BTreeMap<String, RTOuterFunction>,
     pub program: &'a Program,
 }
 
 impl<'a> PhoenixVMState<'a> {
-    pub fn new(outer_functions: BTreeMap<String, &'a mut RTOuterFunction>, program: &'a Program) -> PhoenixVMState<'a> {
+    pub fn new(outer_functions: BTreeMap<String, RTOuterFunction>, program: &'a Program) -> PhoenixVMState<'a> {
         PhoenixVMState {
             stack: vec![],
             function_stack: vec![],
@@ -44,7 +44,7 @@ impl<'a> PhoenixVMState<'a> {
             program,
         }
     }
-    
+
     pub fn swap_program(&mut self, new_program: &'a Program) {
         self.stack.clear();
         self.function_stack.clear();
