@@ -45,6 +45,7 @@ pub enum FElmData {
     VarDef(Arc<FElmVarDef>),
     UnaryExpression(Arc<FElmUnaryExpression>),
     BinaryExpression(Arc<FElmBinaryExpression>),
+    IfStatement(Arc<FElmIfStatement>),
 }
 
 #[derive(Debug)]
@@ -135,6 +136,13 @@ pub struct FElmBinaryExpression {
     pub alpha: FElm,
     pub beta: FElm,
     pub operator: Operator,
+}
+
+#[derive(Debug)]
+pub struct FElmIfStatement {
+    pub condition: FElm,
+    pub body: FElm,
+    pub otherwise: Option<FElm>,
 }
 
 #[derive(Debug)]
@@ -812,6 +820,9 @@ pub fn add_closure(
                 "let" => {
                     add_let(tokens, idstate, &mut instructions)?;
                 }
+                "if" => {
+                    instructions.push(add_if_statement(tokens, idstate)?);
+                }
                 _ => {
                     let next = tokens.get(0); // peek not pop
                     if let Some(data) = next.as_ref().map(|v| &v.data) {
@@ -870,6 +881,118 @@ pub fn add_closure(
 
     Ok(FElmClosure {
         instructions,
+    })
+}
+
+/// enter after "if"
+pub fn add_if_statement(
+    tokens: &mut VecDeque<Token>,
+    idstate: &AtomicUsize,
+) -> Result<FElm, TreeError> {
+    // next token is boolean expression
+    let expression = add_expression(tokens, idstate)?;
+
+    // body
+    let openbody = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    match openbody.data {
+        TokenData::OpenBody => {}
+        x => {
+            return Err(TreeError {
+                line: openbody.line,
+                character: openbody.character,
+                error: TreeErrorType::UnexpectedToken(x),
+            });
+        }
+    }
+    let body = add_closure(tokens, idstate)?;
+
+    // if next token is "else", then we should add an else clause
+    if let Some(next) = tokens.get(0) {
+        if let TokenData::Literal(str) = &next.data {
+            if str == "else" {
+                // could be an else or an else if
+                let _ = tokens.pop_front().unwrap();
+                let next = tokens.pop_front().ok_or(TreeError {
+                    line: 0,
+                    character: 0,
+                    error: TreeErrorType::UnexpectedEnd,
+                })?;
+                match next.data {
+                    TokenData::OpenBody => {
+                        // add a closure as the otherwise
+                        let otherwise = add_closure(tokens, idstate)?;
+
+                        return Ok(FElm {
+                            id: next_id(idstate),
+                            line: expression.line,
+                            character: expression.character,
+                            data: FElmData::IfStatement(Arc::new(FElmIfStatement {
+                                condition: expression,
+                                body: FElm {
+                                    id: next_id(idstate),
+                                    line: openbody.line,
+                                    character: openbody.character,
+                                    data: FElmData::Closure(Arc::new(body)),
+                                },
+                                otherwise: Some(FElm {
+                                    id: next_id(idstate),
+                                    line: next.line,
+                                    character: next.character,
+                                    data: FElmData::Closure(Arc::new(otherwise)),
+                                }),
+                            })),
+                        });
+                    }
+                    TokenData::Literal(s) if s == "if" => {
+                        // add another if statement as the otherwise
+                        let otherwise = add_if_statement(tokens, idstate)?;
+
+                        return Ok(FElm {
+                            id: next_id(idstate),
+                            line: expression.line,
+                            character: expression.character,
+                            data: FElmData::IfStatement(Arc::new(FElmIfStatement {
+                                condition: expression,
+                                body: FElm {
+                                    id: next_id(idstate),
+                                    line: openbody.line,
+                                    character: openbody.character,
+                                    data: FElmData::Closure(Arc::new(body)),
+                                },
+                                otherwise: Some(otherwise),
+                            })),
+                        });
+                    }
+                    x => {
+                        return Err(TreeError {
+                            line: next.line,
+                            character: next.character,
+                            error: TreeErrorType::UnexpectedToken(x),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(FElm {
+        id: next_id(idstate),
+        line: expression.line,
+        character: expression.character,
+        data: FElmData::IfStatement(Arc::new(FElmIfStatement {
+            condition: expression,
+            body: FElm {
+                id: next_id(idstate),
+                line: openbody.line,
+                character: openbody.character,
+                data: FElmData::Closure(Arc::new(body)),
+            },
+            otherwise: None,
+        })),
     })
 }
 

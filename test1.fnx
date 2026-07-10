@@ -6,8 +6,20 @@ fn main() {
         let strvar: &char = "never prints";
     }
     puts(strvar);
-    
+
     let input_value: &char = get_string();
     puts("the input value was:");
     puts(input_value);
+
+    if input_value == "test string" {
+        puts("the input value is what we expected");
+    } else {
+        puts("the input value is not what we expected");
+    }
+
+    if input_value == "not true" {
+        puts("this should not be printed");
+    } else {
+        puts("this should be printed");
+    }
 }
