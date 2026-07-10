@@ -6,4 +6,8 @@ fn main() {
         let strvar: &char = "never prints";
     }
     puts(strvar);
+    
+    let input_value: &char = get_string();
+    puts("the input value was:");
+    puts(input_value);
 }

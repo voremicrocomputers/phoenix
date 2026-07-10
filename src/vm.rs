@@ -2,7 +2,8 @@ use crate::phoenixarch::{Instruction, Program};
 
 pub struct RTOuterFunction  {
     pub argument_count: usize,
-    pub f: Box<dyn FnMut(&[PCell])>,
+    pub returns_value: bool,
+    pub f: Box<dyn FnMut(&[PCell]) -> Option<PCell>>,
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,7 @@ pub enum VMError {
     StackEmpty,
     FunctionNotFound(String),
     OuterFuncIDNotFound(u64),
+    OuterFuncDidNotReturnValue(u64),
 }
 
 pub struct FunctionContext {
@@ -110,7 +112,14 @@ impl<'a> PhoenixVMState<'a> {
                 }
                 let args = &self.stack[self.stack.len()-outer_func.argument_count..self.stack.len()];
                 assert_eq!(args.len(), outer_func.argument_count);
-                outer_func.f.as_mut()(args);
+                let ret = outer_func.f.as_mut()(args);
+                if let Some(ret) = ret {
+                    if outer_func.returns_value {
+                        self.stack.push(ret);
+                    }
+                } else if outer_func.returns_value {
+                    return Err(VMError::OuterFuncDidNotReturnValue(n));
+                }
             }
         }
         Ok(())

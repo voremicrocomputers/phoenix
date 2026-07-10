@@ -241,14 +241,28 @@ pub fn add_expression(
                     })
                 }
                 TokenData::Literal(str) => {
-                    Ok(FElm {
-                        id: next_id(idstate),
-                        line: token.line,
-                        character: token.character,
-                        data: FElmData::VarRef(Arc::new(FElmVarRef {
-                            value: str.to_string(),
-                        })),
-                    })
+                    let peek = tokens.get(0).ok_or(TreeError {
+                        line: 0,
+                        character: 0,
+                        error: TreeErrorType::UnexpectedEnd,
+                    })?;
+                    match &peek.data {
+                        TokenData::OpenParenthesis => {
+                            // function call
+                            tokens.push_front(token);
+                            Ok(add_call(tokens, idstate)?)
+                        }
+                        _ => {
+                            Ok(FElm {
+                                id: next_id(idstate),
+                                line: token.line,
+                                character: token.character,
+                                data: FElmData::VarRef(Arc::new(FElmVarRef {
+                                    value: str.to_string(),
+                                })),
+                            })
+                        }
+                    }
                 }
                 x if let Some(operator) = unary_operator(x) => {
                     let alpha = expression_element(tokens, idstate)?;
@@ -263,25 +277,11 @@ pub fn add_expression(
                     })
                 }
                 _ => {
-                    let peek = tokens.get(0).ok_or(TreeError {
-                        line: 0,
-                        character: 0,
-                        error: TreeErrorType::UnexpectedEnd,
-                    })?;
-                    match &peek.data {
-                        TokenData::OpenParenthesis => {
-                            // function call
-                            tokens.push_front(token);
-                            Ok(add_call(tokens, idstate)?)
-                        }
-                        _ => {
-                            Err(TreeError {
-                                line: token.line,
-                                character: token.character,
-                                error: TreeErrorType::UnexpectedToken(token.data),
-                            })
-                        }
-                    }
+                    Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    })
                 }
             };
         }

@@ -165,7 +165,11 @@ fn compile_expression(
             instructions.push(Instruction::Rotate(variable.stack_idx as u32));
             state.stack_idx += 1;
         }
-        FElmData::Call(_) => { todo!() }
+        FElmData::Call(call) => { 
+            let (ins, has_return_value) = compile_call(state, call, Some((expected_type, expected_typeref)))?;
+            assert!(has_return_value);
+            instructions.extend(ins);
+        }
         FElmData::UnaryExpression(_) => { todo!() }
         FElmData::BinaryExpression(_) => { todo!() }
 
@@ -210,6 +214,7 @@ fn compile_vardef(
 fn compile_call(
     state: &mut CompilerState,
     elm: &FElmCall,
+    expected_type: Option<(FType, usize)>,
 ) -> Result<(Vec<Instruction>, bool), CompileError> {
     let mut instructions = vec![];
     let mut has_return_value = false;
@@ -218,6 +223,16 @@ fn compile_call(
     if let Some((label, elm_id)) = state.scope_functions.iter().rfind(|(name, _)| name == &elm.label) {
         todo!("implement function calls")
     } else if let Some((idx, (_, outer_func))) = state.outer_function_table.iter().enumerate().find(|(_, (name, _))| name == &elm.label) {
+        // verify type
+        if let Some((expected_type, expected_typeref)) = expected_type {
+            if !(expected_type == outer_func.return_type && expected_typeref == outer_func.return_type_ref) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (outer_func.return_type, outer_func.return_type_ref)),
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+        }
         // verify arguments
         if elm.args.len() != outer_func.args.len() {
             return Err(CompileError {
@@ -282,7 +297,7 @@ fn compile_closure(
             }
             FElmData::Call(call) => {
                 let osi = state.stack_idx;
-                let (ins, has_return_value) = compile_call(state, call)?;
+                let (ins, has_return_value) = compile_call(state, call, None)?;
                 instructions.extend(ins);
                 if has_return_value {
                     assert_eq!(state.stack_idx, osi + 1);
