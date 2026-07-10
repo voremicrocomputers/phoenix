@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug)]
 pub enum FType {
     BadType,
     Void,
@@ -23,6 +24,7 @@ impl FType {
     }
 }
 
+#[derive(Debug)]
 pub struct FElm {
     pub id: usize,
     pub line: usize,
@@ -30,6 +32,7 @@ pub struct FElm {
     pub data: FElmData,
 }
 
+#[derive(Debug)]
 pub enum FElmData {
     ToBeFilled,
     Function(Arc<FElmFunction>),
@@ -44,6 +47,7 @@ pub enum FElmData {
     BinaryExpression(Arc<FElmBinaryExpression>),
 }
 
+#[derive(Debug)]
 pub struct FElmFunction {
     pub label: String,
     pub args: Vec<FElmVarDef>, // doesn't use assigns
@@ -52,23 +56,28 @@ pub struct FElmFunction {
     pub body: FElm,
 }
 
+#[derive(Debug)]
 pub struct FElmClosure {
     pub instructions: Vec<FElm>,
 }
 
+#[derive(Debug)]
 pub struct FElmCall {
     pub label: String,
     pub args: Vec<FElm>,
 }
 
+#[derive(Debug)]
 pub struct FElmNumberLiteral {
     pub value: isize,
 }
 
+#[derive(Debug)]
 pub struct FElmStringLiteral {
     pub value: String,
 }
 
+#[derive(Debug)]
 pub struct FElmExternFunction {
     pub label: String,
     pub args: Vec<FElmVarDef>, // doesn't use names or assigns
@@ -76,10 +85,12 @@ pub struct FElmExternFunction {
     pub return_type_ref: usize,
 }
 
+#[derive(Debug)]
 pub struct FElmVarRef {
     pub value: String,
 }
 
+#[derive(Debug)]
 pub struct FElmVarDef {
     pub ftype: FType,
     pub ftype_ref: usize,
@@ -87,6 +98,7 @@ pub struct FElmVarDef {
     pub assign: Option<FElm>,
 }
 
+#[derive(Debug)]
 pub enum Operator {
     Add,
     Sub,
@@ -107,11 +119,13 @@ pub enum Operator {
     LessThanEqual,
 }
 
+#[derive(Debug)]
 pub struct FElmUnaryExpression {
     pub alpha: FElm,
     pub operator: Operator,
 }
 
+#[derive(Debug)]
 pub struct FElmBinaryExpression {
     pub alpha: FElm,
     pub beta: FElm,
@@ -135,6 +149,132 @@ pub enum TreeErrorType {
 
 pub fn next_id(idstate: &AtomicUsize) -> usize {
     idstate.fetch_add(1, Ordering::Relaxed)
+}
+
+fn binary_operator(token: &TokenData) -> Option<Operator> {
+    match token {
+        TokenData::Add => Some(Operator::Add),
+        TokenData::Sub => Some(Operator::Sub),
+        TokenData::Mul => Some(Operator::Mul),
+        TokenData::Div => Some(Operator::Div),
+        TokenData::Mod => Some(Operator::Mod),
+        TokenData::Ampersand => Some(Operator::BitwiseAnd),
+        TokenData::BooleanAnd => Some(Operator::BooleanAnd),
+        TokenData::BitwiseOr => Some(Operator::BitwiseOr),
+        TokenData::BooleanOr => Some(Operator::BooleanOr),
+        TokenData::BitwiseXor => Some(Operator::BitwiseXor),
+        TokenData::Equivalent => Some(Operator::EQ),
+        TokenData::NotEqual => Some(Operator::NotEQ),
+        TokenData::GreaterThan => Some(Operator::GreaterThan),
+        TokenData::LessThan => Some(Operator::LessThan),
+        TokenData::GreaterThanEqual => Some(Operator::GreaterThanEqual),
+        TokenData::LessThanEqual => Some(Operator::LessThanEqual),
+        _ => None,
+    }
+}
+
+fn unary_operator(token: &TokenData) -> Option<Operator> {
+    match token {
+        TokenData::Not => Some(Operator::Not),
+        _ => None,
+    }
+}
+
+pub fn add_expression(
+    tokens: &mut VecDeque<Token>,
+    idstate: &AtomicUsize,
+) -> Result<FElm, TreeError> {
+    fn expression_element(tokens: &mut VecDeque<Token>, idstate: &AtomicUsize) -> Result<FElm, TreeError> {
+        while let Some(token) = tokens.pop_front() {
+            return match &token.data {
+                TokenData::OpenParenthesis => {
+                    // this is starting another expression, go down
+                    let expression = add_expression(tokens, idstate)?;
+                    let close_paren = tokens.pop_front().ok_or(TreeError {
+                        line: 0,
+                        character: 0,
+                        error: TreeErrorType::UnexpectedEnd,
+                    })?;
+                    if !matches!(&close_paren.data, TokenData::CloseParenthesis) {
+                        return Err(TreeError {
+                            line: close_paren.line,
+                            character: close_paren.character,
+                            error: TreeErrorType::UnexpectedToken(close_paren.data),
+                        });
+                    }
+
+                    Ok(expression)
+                }
+                TokenData::NumberLiteral(num) => {
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: token.line,
+                        character: token.character,
+                        data: FElmData::NumberLiteral(Arc::new(FElmNumberLiteral {
+                            value: *num,
+                        })),
+                    })
+                }
+                TokenData::Literal(str) => {
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: token.line,
+                        character: token.character,
+                        data: FElmData::VarRef(Arc::new(FElmVarRef {
+                            value: str.to_string(),
+                        })),
+                    })
+                }
+                x if let Some(operator) = unary_operator(x) => {
+                    let alpha = expression_element(tokens, idstate)?;
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: alpha.line,
+                        character: alpha.character,
+                        data: FElmData::UnaryExpression(Arc::new(FElmUnaryExpression {
+                            alpha,
+                            operator,
+                        })),
+                    })
+                }
+                _ => {
+                    Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    })
+                }
+            };
+        }
+
+        Err(TreeError {
+            line: 0,
+            character: 0,
+            error: TreeErrorType::UnexpectedEnd,
+        })
+    }
+    let alpha = expression_element(tokens, idstate)?;
+    let peek_next = tokens.get(0).ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    if let Some(operator) = binary_operator(&peek_next.data) {
+        let _ = tokens.pop_front();
+        let beta = expression_element(tokens, idstate)?;
+        Ok(FElm {
+            id: next_id(idstate),
+            line: alpha.line,
+            character: alpha.character,
+            data: FElmData::BinaryExpression(Arc::new(FElmBinaryExpression {
+                alpha,
+                beta,
+                operator,
+            })),
+        })
+    } else {
+        Ok(alpha)
+    }
 }
 
 /// enter after "extern" "fn"
@@ -628,6 +768,9 @@ pub fn add_closure(
                 "fn" => {
                     add_function(tokens, idstate, &mut instructions)?;
                 }
+                "let" => {
+                    add_let(tokens, idstate, &mut instructions)?;
+                }
                 _ => {
                     let next = tokens.pop_front();
                     if let Some(data) = next.as_ref().map(|v| &v.data) {
@@ -665,7 +808,134 @@ pub fn add_closure(
         }
     }
 
-    todo!()
+    Ok(FElmClosure {
+        instructions,
+    })
+}
+
+/// enter after "let"
+pub fn add_let(
+    tokens: &mut VecDeque<Token>,
+    idstate: &AtomicUsize,
+    closure: &mut Vec<FElm>,
+) -> Result<(), TreeError> {
+    // next token is variable name
+    let label = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    let start_line = label.line;
+    let start_character = label.character;
+
+    let name = if let TokenData::Literal(str) = label.data {
+        str
+    } else {
+        return Err(TreeError {
+            line: label.line,
+            character: label.character,
+            error: TreeErrorType::UnexpectedToken(label.data),
+        });
+    };
+
+    // next token is :
+    let colon = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    if let TokenData::Colon = colon.data {
+
+    } else {
+        return Err(TreeError {
+            line: colon.line,
+            character: colon.character,
+            error: TreeErrorType::UnexpectedToken(colon.data),
+        });
+    }
+
+    // type
+    let mut refcount = 0;
+    let mut ftype: Option<FType> = None;
+    while let Some(token) = tokens.pop_front() {
+        match &token.data {
+            TokenData::Ampersand => {
+                refcount += 1;
+            }
+            TokenData::Literal(str) => {
+                let littype = FType::from_literal(str);
+                if matches!(&littype, FType::BadType) {
+                    return Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    });
+                }
+                ftype = Some(littype);
+                break;
+            }
+            _ => {
+                return Err(TreeError {
+                    line: token.line,
+                    character: token.character,
+                    error: TreeErrorType::UnexpectedToken(token.data),
+                })
+            }
+        }
+    }
+    let ftype = ftype.ok_or(TreeError {
+        line: start_line,
+        character: start_character,
+        error: TreeErrorType::MissingType,
+    })?;
+
+    // next token should either be semicolon or equals
+    let next = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+
+    match &next.data {
+        TokenData::Semicolon => {
+            // done!
+            closure.push(FElm {
+                id: next_id(idstate),
+                line: start_line,
+                character: start_character,
+                data: FElmData::VarDef(Arc::new(FElmVarDef {
+                    ftype,
+                    ftype_ref: refcount,
+                    name,
+                    assign: None,
+                })),
+            });
+        }
+        TokenData::Equal => {
+            // parse expression
+            let expression = add_expression(tokens, idstate)?;
+            closure.push(FElm {
+                id: next_id(idstate),
+                line: start_line,
+                character: start_character,
+                data: FElmData::VarDef(Arc::new(FElmVarDef {
+                    ftype,
+                    ftype_ref: refcount,
+                    name,
+                    assign: Some(expression),
+                })),
+            });
+        }
+        _ => {
+            return Err(TreeError {
+                line: next.line,
+                character: next.character,
+                error: TreeErrorType::UnexpectedToken(next.data),
+            })
+        }
+    }
+
+    Ok(())
 }
 
 pub fn make_tree(tokens: Vec<Token>) -> Result<FElm, TreeError> {

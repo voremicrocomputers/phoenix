@@ -1,6 +1,4 @@
-extern fn puts(&char) -> isize;
-
-fn _start() {
-    &char strvar = "hello world";
+fn main() {
+    let strvar: &char = "hello world";
     puts(strvar);
 }
