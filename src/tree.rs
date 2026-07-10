@@ -10,6 +10,7 @@ pub enum FType {
     Char,
     Usize,
     Isize,
+    Boolean,
 }
 
 impl FType {
@@ -19,6 +20,7 @@ impl FType {
             "char" => FType::Char,
             "usize" => FType::Usize,
             "isize" => FType::Isize,
+            "bool" => FType::Boolean,
             _ => FType::BadType,
         }
     }
@@ -37,6 +39,7 @@ pub enum FElmData {
     Function(Arc<FElmFunction>),
     Closure(Arc<FElmClosure>),
     Call(Arc<FElmCall>),
+    BooleanLiteral(Arc<FElmBooleanLiteral>),
     NumberLiteral(Arc<FElmNumberLiteral>),
     StringLiteral(Arc<FElmStringLiteral>),
     CharLiteral(Arc<FElmCharLiteral>),
@@ -66,6 +69,11 @@ pub struct FElmClosure {
 pub struct FElmCall {
     pub label: String,
     pub args: Vec<FElm>,
+}
+
+#[derive(Debug)]
+pub struct FElmBooleanLiteral {
+    pub value: bool,
 }
 
 #[derive(Debug)]
@@ -104,7 +112,7 @@ pub struct FElmVarDef {
     pub assign: Option<FElm>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -217,6 +225,16 @@ pub fn add_expression(
                     }
 
                     Ok(expression)
+                }
+                TokenData::BooleanLiteral(b) => {
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: token.line,
+                        character: token.character,
+                        data: FElmData::BooleanLiteral(Arc::new(FElmBooleanLiteral {
+                            value: *b,
+                        })),
+                    })
                 }
                 TokenData::StringLiteral(str) => {
                     Ok(FElm {

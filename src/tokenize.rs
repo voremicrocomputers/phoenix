@@ -83,6 +83,8 @@ pub enum TokenData {
     // =
     Equal,
 
+    // true or false
+    BooleanLiteral(bool),
     // "<string>"
     StringLiteral(String),
     // '<character>'
@@ -303,11 +305,25 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                             break;
                         }
                     }
-                    tokens.push(Token {
-                        data: TokenData::Literal(literalstr),
-                        line,
-                        character,
-                    });
+                    if literalstr == "true" {
+                        tokens.push(Token {
+                            data: TokenData::BooleanLiteral(true),
+                            line,
+                            character,
+                        });
+                    } else if literalstr == "false" {
+                        tokens.push(Token {
+                            data: TokenData::BooleanLiteral(false),
+                            line,
+                            character,
+                        });
+                    } else {
+                        tokens.push(Token {
+                            data: TokenData::Literal(literalstr),
+                            line,
+                            character,
+                        });
+                    }
                 }
             }
         }

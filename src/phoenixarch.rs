@@ -15,6 +15,7 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::CompareEqual,
     Opcode::BooleanNot,
     Opcode::ConstString,
+    Opcode::ConstBoolean,
     Opcode::CallOuter,
 ];
 
@@ -77,6 +78,12 @@ pub enum Opcode {
     /// -
     /// <str>
     ConstString = 32,
+    /// loads a boolean constant
+    /// ConstBoolean( b: bool )
+    /// (intentionally left blank)
+    /// -
+    /// <bool>
+    ConstBoolean = 33,
     ///
     /// calls a function that was defined outside of the scope of the bytecode
     /// CallOuter( FUNC_ID: u64 )
@@ -111,6 +118,7 @@ pub enum Instruction {
     CompareEqual,
     BooleanNot,
     ConstString(u64),
+    ConstBoolean(bool),
     CallOuter(u64),
 }
 
@@ -129,6 +137,7 @@ impl Instruction {
             Instruction::BooleanNot => Opcode::BooleanNot,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
+            Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
         }
     }
 }

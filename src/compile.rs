@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
-use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmVarDef, FType};
+use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmVarDef, FType, Operator};
 
 pub struct VariableState {
     pub ftype: FType,
@@ -32,7 +32,7 @@ pub struct CompilerState {
     pub string_table: Vec<String>,
     pub outer_function_table: Vec<(String, OuterFunction)>,
     pub unique_function_lookup: BTreeMap<usize, String>,
-    pub scope_functions: Vec<(String, usize)>,
+    pub scope_functions: Vec<(String, usize, (FType, usize))>,
     pub variables: Vec<(String, VariableState)>,
     pub stack_idx: usize,
 }
@@ -47,6 +47,10 @@ pub enum CompileErrorType {
     VariableNotFound(String),
     ExpressionIsNotOfExpectedType((FType, usize), (FType, usize)), // (expected, actual)
     IncorrectArgumentCount(usize, usize), // (expected, actual)
+    InvalidUnaryOperator,
+    InvalidBinaryOperator,
+    InvalidExpressionInBinaryOperation,
+    BinaryExpressionsAreNotOfEqualType,
 }
 
 #[derive(Debug)]
@@ -79,6 +83,9 @@ fn evaluate_constant_strings(elm: &FElm) -> Result<Vec<String>, CompileError> {
             }
             Ok(strings)
         }
+        FElmData::BooleanLiteral(_) => {
+            Ok(vec![])
+        }
         FElmData::NumberLiteral(_) => {
             Ok(vec![])
         }
@@ -110,6 +117,56 @@ fn evaluate_constant_strings(elm: &FElm) -> Result<Vec<String>, CompileError> {
             strings.extend(evaluate_constant_strings(&binary.beta)?);
             Ok(strings)
         }
+        FElmData::IfStatement(ifst) => {
+            let mut strings = vec![];
+            
+            strings.extend(evaluate_constant_strings(&ifst.condition)?);
+            strings.extend(evaluate_constant_strings(&ifst.body)?);
+            if let Some(otherwise) = &ifst.otherwise {
+                strings.extend(evaluate_constant_strings(otherwise)?);
+            }
+            
+            Ok(strings)
+        }
+    }
+}
+
+fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)> {
+    match &elm.data {
+        FElmData::Call(call) => {
+            if let Some((_, _, ftype)) = state.scope_functions.iter().rfind(|(name, _, _)| name == &call.label) {
+                Some(*ftype)
+            } else if let Some((_, (_, outer_func))) = state.outer_function_table.iter().enumerate().find(|(_, (name, _))| name == &call.label) {
+                Some((outer_func.return_type, outer_func.return_type_ref))
+            } else {
+                None
+            }
+        }
+        FElmData::BooleanLiteral(_) => {
+            Some((FType::Boolean, 0))
+        }
+        FElmData::NumberLiteral(_) => {
+            todo!("numlit")
+        }
+        FElmData::StringLiteral(_) => {
+            Some((FType::Char, 1))
+        }
+        FElmData::CharLiteral(_) => {
+            Some((FType::Char, 0))
+        }
+        FElmData::VarRef(var) => {
+            let variable_idx = state.variables.iter().rposition(|v| v.0 == var.value)?;
+            let (_, variable) = state.variables.get(variable_idx).unwrap();
+            Some((variable.ftype, variable.ftype_ref))
+        }
+        FElmData::UnaryExpression(felm) => {
+            evaluate_type(state, &felm.alpha)
+        }
+        FElmData::BinaryExpression(felm) => {
+            evaluate_type(state, &felm.alpha)
+        }
+        
+        _ => None,
     }
 }
 
@@ -127,6 +184,18 @@ fn compile_expression(
     let original_stack_idx = state.stack_idx;
 
     match &elm.data {
+        FElmData::BooleanLiteral(v) => {
+            if !(expected_type == FType::Boolean && expected_typeref == 0) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::Boolean, 0)),
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+            
+            instructions.push(Instruction::ConstBoolean(v.value));
+            state.stack_idx += 1;
+        }
         FElmData::NumberLiteral(_) => { todo!() }
         FElmData::StringLiteral(str) => {
             if !(expected_type == FType::Char && expected_typeref == 1) {
@@ -170,8 +239,83 @@ fn compile_expression(
             assert!(has_return_value);
             instructions.extend(ins);
         }
-        FElmData::UnaryExpression(_) => { todo!() }
-        FElmData::BinaryExpression(_) => { todo!() }
+        FElmData::UnaryExpression(una) => {
+            if !(expected_type == FType::Boolean && expected_typeref == 0) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::Boolean, 0)),
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+            
+            if una.operator == Operator::Not {
+                instructions.extend(compile_expression(state, &una.alpha, expected_type, expected_typeref)?);
+                instructions.push(Instruction::BooleanNot);
+            } else {
+                return Err(CompileError {
+                    error_type: CompileErrorType::InvalidUnaryOperator,
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+        }
+        FElmData::BinaryExpression(bina) => { 
+            match bina.operator {
+                Operator::EQ | Operator::NotEQ => {
+                    let first_type = evaluate_type(state, &bina.alpha).ok_or(CompileError {
+                        error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
+                        line: state.line,
+                        character: state.character,
+                    })?;
+                    let second_type = evaluate_type(state, &bina.beta).ok_or(CompileError {
+                        error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
+                        line: state.line,
+                        character: state.character,
+                    })?;
+                    if first_type != second_type {
+                        return Err(CompileError {
+                            error_type: CompileErrorType::BinaryExpressionsAreNotOfEqualType,
+                            line: state.line,
+                            character: state.character,
+                        });
+                    }
+                    instructions.extend(compile_expression(state, &bina.alpha, first_type.0, first_type.1)?);
+                    instructions.extend(compile_expression(state, &bina.beta, first_type.0, first_type.1)?);
+                    instructions.push(Instruction::CompareEqual);
+                    state.stack_idx -= 2;
+                    state.stack_idx += 1;
+                    if bina.operator == Operator::NotEQ {
+                        instructions.push(Instruction::BooleanNot);
+                    }
+                }
+                /*
+                Operator::Add => {}
+                Operator::Sub => {}
+                Operator::Mul => {}
+                Operator::Div => {}
+                Operator::Mod => {}
+                Operator::BitwiseAnd => {}
+                Operator::BooleanAnd => {}
+                Operator::BitwiseOr => {}
+                Operator::BooleanOr => {}
+                Operator::BitwiseXor => {}
+                Operator::GreaterThan => {}
+                Operator::LessThan => {}
+                Operator::GreaterThanEqual => {}
+                Operator::LessThanEqual => {}
+                 */
+                
+                Operator::Not => {
+                    return Err(CompileError {
+                        error_type: CompileErrorType::InvalidBinaryOperator,
+                        line: state.line,
+                        character: state.character,
+                    })
+                }
+                
+                _ => { todo!() }
+            }
+        }
 
         _ => {
             return Err(CompileError {
@@ -220,7 +364,7 @@ fn compile_call(
     let mut has_return_value = false;
     let original_stack_idx = state.stack_idx;
 
-    if let Some((label, elm_id)) = state.scope_functions.iter().rfind(|(name, _)| name == &elm.label) {
+    if let Some((label, elm_id, ftype)) = state.scope_functions.iter().rfind(|(name, _, _)| name == &elm.label) {
         todo!("implement function calls")
     } else if let Some((idx, (_, outer_func))) = state.outer_function_table.iter().enumerate().find(|(_, (name, _))| name == &elm.label) {
         // verify type
@@ -276,7 +420,7 @@ fn compile_closure(
     let scope_function_index = state.scope_functions.len();
     for elm in &elm.instructions {
         if let FElmData::Function(func) = &elm.data {
-            state.scope_functions.push((func.label.clone(), elm.id));
+            state.scope_functions.push((func.label.clone(), elm.id, (func.return_type, func.return_type_ref)));
         }
     }
 
@@ -402,7 +546,7 @@ pub fn compile(tree: FElm, implemented_outer_functions: Vec<(String, OuterFuncti
             // evaluate scope functions
             for elm in &closure.instructions {
                 if let FElmData::Function(func) = &elm.data {
-                    state.scope_functions.push((func.label.clone(), elm.id));
+                    state.scope_functions.push((func.label.clone(), elm.id, (func.return_type, func.return_type_ref)));
                 }
             }
 
