@@ -18,8 +18,8 @@ pub enum PCell {
 pub enum VMError {
     StackEmpty,
     FunctionNotFound(String),
-    OuterFuncIDNotFound(u64),
-    OuterFuncDidNotReturnValue(u64),
+    OuterFuncIDNotFound(u16),
+    OuterFuncDidNotReturnValue(u16),
     ExpectedStackElementOfType(&'static str, PCell), // (expected, found)
 }
 
@@ -43,6 +43,12 @@ impl<'a> PhoenixVMState<'a> {
             outer_functions,
             program,
         }
+    }
+    
+    pub fn swap_program(&mut self, new_program: &'a Program) {
+        self.stack.clear();
+        self.function_stack.clear();
+        self.program = new_program;
     }
 
     pub fn execute_function(&mut self, func: &str) -> Result<(), VMError> {

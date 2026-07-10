@@ -2,6 +2,7 @@ use crate::compile::OuterFunction;
 use crate::tree::{FElmVarDef, FType};
 use crate::vm::{PCell, PhoenixVMState, RTOuterFunction};
 use std::collections::BTreeMap;
+use crate::phoenixarch::Program;
 
 pub mod compile;
 pub mod phoenixarch;
@@ -43,6 +44,10 @@ fn main() {
     )
     .expect("failed to compile program");
     println!("{:#?}", program);
+
+    let program = program.bytecode();
+    println!("program is {} bytes long", program.len());
+    let program = Program::from_bytecode(&program).expect("failed to deserialize program bytecode");
 
     let mut puts_impl =
         RTOuterFunction {

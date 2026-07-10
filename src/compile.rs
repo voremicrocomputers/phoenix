@@ -212,7 +212,7 @@ fn compile_expression(
                     line: state.line,
                     character: state.character,
                 })?;
-            instructions.push(Instruction::ConstString(idx as u64));
+            instructions.push(Instruction::ConstString(idx as u16));
             state.stack_idx += 1;
         }
         FElmData::CharLiteral(_) => { todo!() }
@@ -458,7 +458,7 @@ fn compile_call(
             instructions.extend(compile_expression(state, alpha, ftype, ftype_ref)?);
         }
         assert_eq!(state.stack_idx, original_stack_idx + elm.args.len());
-        instructions.push(Instruction::CallOuter(idx as u64));
+        instructions.push(Instruction::CallOuter(idx as u16));
         state.stack_idx -= elm.args.len(); // all arguments were consumed
         if has_return_value {
             // one extra stack element for return value
@@ -648,7 +648,6 @@ pub fn compile(tree: FElm, implemented_outer_functions: Vec<(String, OuterFuncti
     Ok(Program {
         string_table: state.string_table,
         outer_function_table: state.outer_function_table.iter().map(|v| v.0.clone()).collect(),
-        inner_function_table: functions.iter().enumerate().map(|v| (v.1.0.clone(), v.0)).collect(),
         toplevel_function_table: functions.iter().enumerate().filter_map(|v| if v.1.1.toplevel { Some((v.1.1.label.clone(), v.0)) } else { None }).collect(),
         functions: functions.into_iter().map(|v| v.1.instructions).collect(),
     })
