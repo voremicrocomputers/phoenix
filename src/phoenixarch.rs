@@ -113,5 +113,6 @@ pub struct Program {
     pub string_table: Vec<String>,
     pub outer_function_table: Vec<String>,
     pub inner_function_table: Vec<(String, usize)>,
+    pub toplevel_function_table: Vec<(String, usize)>,
     pub functions: Vec<Vec<Instruction>>,
 }

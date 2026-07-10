@@ -226,7 +226,7 @@ fn compile_call(
                 character: state.character,
             });
         }
-        if !matches!(&outer_func.return_type, FType::Void) {
+        if outer_func.return_type != FType::Void {
             has_return_value = true;
         }
         let types = outer_func.args.iter().map(|v| (v.ftype, v.ftype_ref)).collect::<Vec<_>>();
@@ -281,11 +281,15 @@ fn compile_closure(
                 instructions.extend(compile_vardef(state, vardef)?);
             }
             FElmData::Call(call) => {
+                let osi = state.stack_idx;
                 let (ins, has_return_value) = compile_call(state, call)?;
                 instructions.extend(ins);
                 if has_return_value {
+                    assert_eq!(state.stack_idx, osi + 1);
                     instructions.push(Instruction::Drop); // we don't want the return value
                     state.stack_idx -= 1;
+                } else {
+                    assert_eq!(state.stack_idx, osi);
                 }
             }
             /*
@@ -417,7 +421,8 @@ pub fn compile(tree: FElm, implemented_outer_functions: Vec<(String, OuterFuncti
     Ok(Program {
         string_table: state.string_table,
         outer_function_table: state.outer_function_table.iter().map(|v| v.0.clone()).collect(),
-        inner_function_table: functions.iter().enumerate().filter_map(|v| if v.1.1.toplevel { Some((v.1.0.clone(), v.0)) } else { None }).collect(),
+        inner_function_table: functions.iter().enumerate().map(|v| (v.1.0.clone(), v.0)).collect(),
+        toplevel_function_table: functions.iter().enumerate().filter_map(|v| if v.1.1.toplevel { Some((v.1.1.label.clone(), v.0)) } else { None }).collect(),
         functions: functions.into_iter().map(|v| v.1.instructions).collect(),
     })
 }
