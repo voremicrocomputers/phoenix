@@ -338,11 +338,11 @@ fn compile_if_statement(
     elm: &FElmIfStatement,
 ) -> Result<Vec<Instruction>, CompileError> {
     let mut instructions = vec![];
-    
+
     let osi = state.stack_idx;
 
     instructions.extend(compile_expression(state, &elm.condition, FType::Boolean, 0)?);
-    
+
     let add_one_to_branch = if let Some(otherwise) = &elm.otherwise {
         matches!(&otherwise.data, FElmData::Closure(_))
     } else {
@@ -362,7 +362,7 @@ fn compile_if_statement(
             character: state.character,
         });
     }
-    
+
     if let Some(otherwise) = &elm.otherwise {
         match &otherwise.data {
             FElmData::IfStatement(ifst) => {
@@ -387,7 +387,7 @@ fn compile_if_statement(
             }
         }
     }
-    
+
     assert_eq!(state.stack_idx, osi);
 
     Ok(instructions)

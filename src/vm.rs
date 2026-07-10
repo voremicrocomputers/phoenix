@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
 
 pub struct RTOuterFunction  {
@@ -30,12 +31,12 @@ pub struct FunctionContext {
 pub struct PhoenixVMState<'a> {
     pub stack: Vec<PCell>,
     pub function_stack: Vec<FunctionContext>,
-    pub outer_functions: &'a mut [RTOuterFunction],
+    pub outer_functions: BTreeMap<String, &'a mut RTOuterFunction>,
     pub program: &'a Program,
 }
 
 impl<'a> PhoenixVMState<'a> {
-    pub fn new(outer_functions: &'a mut [RTOuterFunction], program: &'a Program) -> PhoenixVMState<'a> {
+    pub fn new(outer_functions: BTreeMap<String, &'a mut RTOuterFunction>, program: &'a Program) -> PhoenixVMState<'a> {
         PhoenixVMState {
             stack: vec![],
             function_stack: vec![],
@@ -153,7 +154,8 @@ impl<'a> PhoenixVMState<'a> {
                 self.stack.push(PCell::String(self.program.string_table[n as usize].clone()));
             }
             Instruction::CallOuter(n) => {
-                let outer_func = self.outer_functions.get_mut(n as usize).ok_or(VMError::OuterFuncIDNotFound(n))?;
+                let label = self.program.outer_function_table.get(n as usize).ok_or(VMError::OuterFuncIDNotFound(n))?;
+                let outer_func = self.outer_functions.get_mut(label).ok_or(VMError::OuterFuncIDNotFound(n))?;
                 if self.stack.len() < outer_func.argument_count {
                     return Err(VMError::StackEmpty);
                 }
