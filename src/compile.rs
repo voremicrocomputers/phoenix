@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
-use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmVarDef, FType, Operator};
+use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmIfStatement, FElmVarDef, FType, Operator};
 
 pub struct VariableState {
     pub ftype: FType,
@@ -43,6 +43,7 @@ pub enum CompileErrorType {
     InternalCompilerStackCorruption,
     UnexpectedElementInClosure,
     UnsupportedElementInExpression,
+    UnsupportedElementInIfStatement,
     InternalCompilerStringTableError,
     VariableNotFound(String),
     ExpressionIsNotOfExpectedType((FType, usize), (FType, usize)), // (expected, actual)
@@ -119,13 +120,13 @@ fn evaluate_constant_strings(elm: &FElm) -> Result<Vec<String>, CompileError> {
         }
         FElmData::IfStatement(ifst) => {
             let mut strings = vec![];
-            
+
             strings.extend(evaluate_constant_strings(&ifst.condition)?);
             strings.extend(evaluate_constant_strings(&ifst.body)?);
             if let Some(otherwise) = &ifst.otherwise {
                 strings.extend(evaluate_constant_strings(otherwise)?);
             }
-            
+
             Ok(strings)
         }
     }
@@ -165,7 +166,7 @@ fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)
         FElmData::BinaryExpression(felm) => {
             evaluate_type(state, &felm.alpha)
         }
-        
+
         _ => None,
     }
 }
@@ -192,7 +193,7 @@ fn compile_expression(
                     character: state.character,
                 })
             }
-            
+
             instructions.push(Instruction::ConstBoolean(v.value));
             state.stack_idx += 1;
         }
@@ -234,7 +235,7 @@ fn compile_expression(
             instructions.push(Instruction::Rotate(variable.stack_idx as u32));
             state.stack_idx += 1;
         }
-        FElmData::Call(call) => { 
+        FElmData::Call(call) => {
             let (ins, has_return_value) = compile_call(state, call, Some((expected_type, expected_typeref)))?;
             assert!(has_return_value);
             instructions.extend(ins);
@@ -247,7 +248,7 @@ fn compile_expression(
                     character: state.character,
                 })
             }
-            
+
             if una.operator == Operator::Not {
                 instructions.extend(compile_expression(state, &una.alpha, expected_type, expected_typeref)?);
                 instructions.push(Instruction::BooleanNot);
@@ -259,7 +260,7 @@ fn compile_expression(
                 })
             }
         }
-        FElmData::BinaryExpression(bina) => { 
+        FElmData::BinaryExpression(bina) => {
             match bina.operator {
                 Operator::EQ | Operator::NotEQ => {
                     let first_type = evaluate_type(state, &bina.alpha).ok_or(CompileError {
@@ -304,7 +305,7 @@ fn compile_expression(
                 Operator::GreaterThanEqual => {}
                 Operator::LessThanEqual => {}
                  */
-                
+
                 Operator::Not => {
                     return Err(CompileError {
                         error_type: CompileErrorType::InvalidBinaryOperator,
@@ -312,7 +313,7 @@ fn compile_expression(
                         character: state.character,
                     })
                 }
-                
+
                 _ => { todo!() }
             }
         }
@@ -327,6 +328,67 @@ fn compile_expression(
     }
 
     assert_eq!(state.stack_idx, original_stack_idx + 1);
+
+    Ok(instructions)
+}
+
+fn compile_if_statement(
+    state: &mut CompilerState,
+    functions: &mut BTreeMap<String, CompiledFunction>,
+    elm: &FElmIfStatement,
+) -> Result<Vec<Instruction>, CompileError> {
+    let mut instructions = vec![];
+    
+    let osi = state.stack_idx;
+
+    instructions.extend(compile_expression(state, &elm.condition, FType::Boolean, 0)?);
+    
+    let add_one_to_branch = if let Some(otherwise) = &elm.otherwise {
+        matches!(&otherwise.data, FElmData::Closure(_))
+    } else {
+        false
+    };
+
+    if let FElmData::Closure(clos) = &elm.body.data {
+        // if the boolean above is true, we want to run this code, otherwise we want to skip forward
+        let closure_instructions = compile_closure(state, functions, clos)?;
+        instructions.push(Instruction::RelativeBranch(closure_instructions.len() as i32 + if add_one_to_branch { 1 } else { 0 })); // skips forward if boolean is false
+        state.stack_idx -= 1;
+        instructions.extend(closure_instructions);
+    } else {
+        return Err(CompileError {
+            error_type: CompileErrorType::UnsupportedElementInIfStatement,
+            line: state.line,
+            character: state.character,
+        });
+    }
+    
+    if let Some(otherwise) = &elm.otherwise {
+        match &otherwise.data {
+            FElmData::IfStatement(ifst) => {
+                instructions.extend(compile_if_statement(state, functions, ifst)?);
+            }
+            FElmData::Closure(clos) => {
+                // only run this code if the original code didn't execute
+                // we can assert that add_one_to_branch is true, and as such,
+                // if the original closure ran, we will end up before the 1 additional instruction
+                // we will use that extra instruction to jump past the else code
+                let otherwise_instructions = compile_closure(state, functions, clos)?;
+                instructions.push(Instruction::Jump(otherwise_instructions.len() as i32));
+                // this is now where we will land after the first relativebranch, if the if statement was false
+                instructions.extend(otherwise_instructions);
+            }
+            _ => {
+                return Err(CompileError {
+                    error_type: CompileErrorType::UnsupportedElementInIfStatement,
+                    line: state.line,
+                    character: state.character,
+                });
+            }
+        }
+    }
+    
+    assert_eq!(state.stack_idx, osi);
 
     Ok(instructions)
 }
@@ -451,6 +513,9 @@ fn compile_closure(
                     assert_eq!(state.stack_idx, osi);
                 }
             }
+            FElmData::IfStatement(ifst) => {
+                instructions.extend(compile_if_statement(state, functions, ifst)?);
+            }
             /*
             FElmData::NumberLiteral(_) => {}
             FElmData::StringLiteral(_) => {}
@@ -478,6 +543,7 @@ fn compile_closure(
     if state.stack_idx > original_stack_idx {
         for _ in 0..(state.stack_idx - original_stack_idx) {
             instructions.push(Instruction::Drop);
+            state.stack_idx -= 1;
         }
     } else if state.stack_idx < original_stack_idx {
         return Err(CompileError {
@@ -486,6 +552,8 @@ fn compile_closure(
             character: state.character,
         });
     }
+
+    assert_eq!(state.stack_idx, original_stack_idx);
 
     Ok(instructions)
 }

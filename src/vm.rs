@@ -6,10 +6,11 @@ pub struct RTOuterFunction  {
     pub f: Box<dyn FnMut(&[PCell]) -> Option<PCell>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PCell {
     Blank,
     String(String),
+    Boolean(bool),
 }
 
 #[derive(Debug)]
@@ -18,6 +19,7 @@ pub enum VMError {
     FunctionNotFound(String),
     OuterFuncIDNotFound(u64),
     OuterFuncDidNotReturnValue(u64),
+    ExpectedStackElementOfType(&'static str, PCell), // (expected, found)
 }
 
 pub struct FunctionContext {
@@ -101,6 +103,51 @@ impl<'a> PhoenixVMState<'a> {
             }
             Instruction::PushEmpty => {
                 self.stack.push(PCell::Blank);
+            }
+            Instruction::RelativeBranch(pcoff) => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                if let PCell::Boolean(v) = alpha {
+                    if !v {
+                        if let Some(ctx) = self.function_stack.last_mut() {
+                            if pcoff.is_positive() {
+                                ctx.pc += pcoff as usize;
+                            } else {
+                                ctx.pc -= pcoff.abs() as usize;
+                            }
+                        } else {
+                            return Err(VMError::FunctionNotFound("current".to_string()));
+                        }
+                    }
+                } else {
+                    return Err(VMError::ExpectedStackElementOfType("boolean", alpha));
+                }
+            }
+            Instruction::CompareEqual => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                self.stack.push(PCell::Boolean(alpha == beta));
+            }
+            Instruction::BooleanNot => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                if let PCell::Boolean(v) = alpha {
+                    self.stack.push(PCell::Boolean(!v));
+                } else {
+                    return Err(VMError::ExpectedStackElementOfType("boolean", alpha));
+                }
+            }
+            Instruction::Jump(pcoff) => {
+                if let Some(ctx) = self.function_stack.last_mut() {
+                    if pcoff.is_positive() {
+                        ctx.pc += pcoff as usize;
+                    } else {
+                        ctx.pc -= pcoff.abs() as usize;
+                    }
+                } else {
+                    return Err(VMError::FunctionNotFound("current".to_string()));
+                }
+            }
+            Instruction::ConstBoolean(v) => {
+                self.stack.push(PCell::Boolean(v));
             }
             Instruction::ConstString(n) => {
                 self.stack.push(PCell::String(self.program.string_table[n as usize].clone()));

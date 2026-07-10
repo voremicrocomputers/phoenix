@@ -14,6 +14,7 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::RelativeBranch,
     Opcode::CompareEqual,
     Opcode::BooleanNot,
+    Opcode::Jump,
     Opcode::ConstString,
     Opcode::ConstBoolean,
     Opcode::CallOuter,
@@ -56,7 +57,7 @@ pub enum Opcode {
     /// -
     /// <EMPTY ELEMENT>
     PushEmpty = 6,
-    /// adds the given number to the program counter if the top cell on the stack is a Boolean::True
+    /// adds the given number to the program counter if the top cell on the stack is a Boolean::False
     /// RelativeBranch( N: i32 )
     /// <boolean>, ...
     /// -
@@ -71,7 +72,11 @@ pub enum Opcode {
     /// A
     /// -
     /// !A
-    BooleanNot,
+    BooleanNot = 9,
+    /// unconditional program counter jump
+    /// Jump( N: i32 )
+    /// (has no effect on stack)
+    Jump = 10,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -117,6 +122,7 @@ pub enum Instruction {
     RelativeBranch(i32),
     CompareEqual,
     BooleanNot,
+    Jump(i32),
     ConstString(u64),
     ConstBoolean(bool),
     CallOuter(u64),
@@ -135,6 +141,7 @@ impl Instruction {
             Instruction::RelativeBranch(_) => Opcode::RelativeBranch,
             Instruction::CompareEqual => Opcode::CompareEqual,
             Instruction::BooleanNot => Opcode::BooleanNot,
+            Instruction::Jump(_) => Opcode::Jump,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
             Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
