@@ -1,4 +1,9 @@
 fn main() {
     let strvar: &char = "hello world";
+    {
+        let strvar: &char = "hi";
+        puts(strvar);
+        let strvar: &char = "never prints";
+    }
     puts(strvar);
 }
