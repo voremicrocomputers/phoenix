@@ -40,6 +40,7 @@ pub enum FElmData {
     Call(Arc<FElmCall>),
     NumberLiteral(Arc<FElmNumberLiteral>),
     StringLiteral(Arc<FElmStringLiteral>),
+    CharLiteral(Arc<FElmCharLiteral>),
     ExternFunction(Arc<FElmExternFunction>),
     VarRef(Arc<FElmVarRef>),
     VarDef(Arc<FElmVarDef>),
@@ -75,6 +76,11 @@ pub struct FElmNumberLiteral {
 #[derive(Debug)]
 pub struct FElmStringLiteral {
     pub value: String,
+}
+
+#[derive(Debug)]
+pub struct FElmCharLiteral {
+    pub value: char,
 }
 
 #[derive(Debug)]
@@ -205,6 +211,26 @@ pub fn add_expression(
 
                     Ok(expression)
                 }
+                TokenData::StringLiteral(str) => {
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: token.line,
+                        character: token.character,
+                        data: FElmData::StringLiteral(Arc::new(FElmStringLiteral {
+                            value: str.to_string(),
+                        })),
+                    })
+                }
+                TokenData::CharacterLiteral(c) => {
+                    Ok(FElm {
+                        id: next_id(idstate),
+                        line: token.line,
+                        character: token.character,
+                        data: FElmData::CharLiteral(Arc::new(FElmCharLiteral {
+                            value: *c,
+                        })),
+                    })
+                }
                 TokenData::NumberLiteral(num) => {
                     Ok(FElm {
                         id: next_id(idstate),
@@ -238,11 +264,25 @@ pub fn add_expression(
                     })
                 }
                 _ => {
-                    Err(TreeError {
-                        line: token.line,
-                        character: token.character,
-                        error: TreeErrorType::UnexpectedToken(token.data),
-                    })
+                    let peek = tokens.get(0).ok_or(TreeError {
+                        line: 0,
+                        character: 0,
+                        error: TreeErrorType::UnexpectedEnd,
+                    })?;
+                    match &peek.data {
+                        TokenData::OpenParenthesis => {
+                            // function call
+                            tokens.push_front(token);
+                            Ok(add_call(tokens, idstate)?)
+                        }
+                        _ => {
+                            Err(TreeError {
+                                line: token.line,
+                                character: token.character,
+                                error: TreeErrorType::UnexpectedToken(token.data),
+                            })
+                        }
+                    }
                 }
             };
         }
@@ -772,11 +812,29 @@ pub fn add_closure(
                     add_let(tokens, idstate, &mut instructions)?;
                 }
                 _ => {
-                    let next = tokens.pop_front();
+                    let next = tokens.get(0); // peek not pop
                     if let Some(data) = next.as_ref().map(|v| &v.data) {
                         match data {
                             TokenData::OpenParenthesis => {
                                 // function call
+                                tokens.push_front(token);
+                                let call = add_call(tokens, idstate)?;
+                                let semicolon = tokens.pop_front().ok_or(TreeError {
+                                    line: 0,
+                                    character: 0,
+                                    error: TreeErrorType::UnexpectedEnd,
+                                })?;
+                                if let TokenData::Semicolon = semicolon.data {
+
+                                } else {
+                                    return Err(TreeError {
+                                        line: semicolon.line,
+                                        character: semicolon.character,
+                                        error: TreeErrorType::UnexpectedToken(semicolon.data),
+                                    });
+                                }
+
+                                instructions.push(call);
                             }
                             TokenData::Equal => {
                                 // var assign
@@ -790,12 +848,13 @@ pub fn add_closure(
                                 });
                             }
                         }
+                    } else {
+                        return Err(TreeError {
+                            line: token.line,
+                            character: token.character,
+                            error: TreeErrorType::UnexpectedToken(token.data),
+                        });
                     }
-                    return Err(TreeError {
-                        line: token.line,
-                        character: token.character,
-                        error: TreeErrorType::UnexpectedToken(token.data),
-                    });
                 }
             },
             _ => {
@@ -810,6 +869,91 @@ pub fn add_closure(
 
     Ok(FElmClosure {
         instructions,
+    })
+}
+
+/// enter at label
+pub fn add_call(
+    tokens: &mut VecDeque<Token>,
+    idstate: &AtomicUsize,
+) -> Result<FElm, TreeError> {
+    // next token is function name
+    let label = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    let start_line = label.line;
+    let start_character = label.character;
+
+    let name = if let TokenData::Literal(str) = label.data {
+        str
+    } else {
+        return Err(TreeError {
+            line: label.line,
+            character: label.character,
+            error: TreeErrorType::UnexpectedToken(label.data),
+        });
+    };
+
+    // next token is open paren
+    let openparen = tokens.pop_front().ok_or(TreeError {
+        line: 0,
+        character: 0,
+        error: TreeErrorType::UnexpectedEnd,
+    })?;
+    if let TokenData::OpenParenthesis = openparen.data {
+
+    } else {
+        return Err(TreeError {
+            line: openparen.line,
+            character: openparen.character,
+            error: TreeErrorType::UnexpectedToken(openparen.data),
+        });
+    }
+
+    let mut arguments = vec![];
+    let mut expecting_comma = false;
+    while let Some(token) = tokens.pop_front() {
+        match &token.data {
+            TokenData::Comma => {
+                if !expecting_comma {
+                    return Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    })
+                } else {
+                    expecting_comma = false;
+                }
+            }
+            TokenData::CloseParenthesis => {
+                break;
+            }
+            _ => {
+                if expecting_comma {
+                    return Err(TreeError {
+                        line: token.line,
+                        character: token.character,
+                        error: TreeErrorType::UnexpectedToken(token.data),
+                    })
+                }
+                tokens.push_front(token);
+                let arg = add_expression(tokens, idstate)?;
+                expecting_comma = true;
+                arguments.push(arg);
+            }
+        }
+    }
+
+    Ok(FElm {
+        id: next_id(idstate),
+        line: start_line,
+        character: start_character,
+        data: FElmData::Call(Arc::new(FElmCall {
+            label: name,
+            args: arguments,
+        })),
     })
 }
 
@@ -925,6 +1069,20 @@ pub fn add_let(
                     assign: Some(expression),
                 })),
             });
+            let semicolon = tokens.pop_front().ok_or(TreeError {
+                line: 0,
+                character: 0,
+                error: TreeErrorType::UnexpectedEnd,
+            })?;
+            if let TokenData::Semicolon = semicolon.data {
+
+            } else {
+                return Err(TreeError {
+                    line: semicolon.line,
+                    character: semicolon.character,
+                    error: TreeErrorType::UnexpectedToken(semicolon.data),
+                })
+            }
         }
         _ => {
             return Err(TreeError {
