@@ -157,9 +157,9 @@ impl<'a> PhoenixVMState<'a> {
                 if self.stack.len() < outer_func.argument_count {
                     return Err(VMError::StackEmpty);
                 }
-                let args = &self.stack[self.stack.len()-outer_func.argument_count..self.stack.len()];
+                let args = self.stack.drain(self.stack.len()-outer_func.argument_count..self.stack.len()).collect::<Vec<_>>();
                 assert_eq!(args.len(), outer_func.argument_count);
-                let ret = outer_func.f.as_mut()(args);
+                let ret = outer_func.f.as_mut()(&args);
                 if let Some(ret) = ret {
                     if outer_func.returns_value {
                         self.stack.push(ret);
