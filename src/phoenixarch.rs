@@ -15,6 +15,8 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::CompareEqual,
     Opcode::BooleanNot,
     Opcode::Jump,
+    Opcode::RotateDynamic,
+    Opcode::ExchangeDynamic,
     Opcode::ConstString,
     Opcode::ConstBoolean,
     Opcode::CallOuter,
@@ -77,6 +79,16 @@ pub enum Opcode {
     /// Jump( N: i32 )
     /// (has no effect on stack)
     Jump = 10,
+    /// same as Rotate, but N is taken from the top of the stack
+    /// N, A, ..., <element N from A>
+    /// -
+    /// <element N copy>, A, ..., <element N from A>
+    RotateDynamic = 11,
+    /// same as Exchange, but N is taken from the top of the stack
+    /// N, V, A, ..., <element N from A>
+    /// -
+    /// A, ..., <element N now == V, previous value lost>
+    ExchangeDynamic = 12,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -89,6 +101,12 @@ pub enum Opcode {
     /// -
     /// <bool>
     ConstBoolean = 33,
+    /// loads a u32 constant
+    /// ConstU32( n: u32 )
+    /// (intentionally left blank)
+    /// -
+    /// <n>
+    ConstU32 = 34,
     ///
     /// calls a function that was defined outside of the scope of the bytecode
     /// CallOuter( FUNC_ID: u64 )
@@ -123,8 +141,11 @@ pub enum Instruction {
     CompareEqual,
     BooleanNot,
     Jump(i32),
+    RotateDynamic,
+    ExchangeDynamic,
     ConstString(u16),
     ConstBoolean(bool),
+    ConstU32(u32),
     CallOuter(u16),
 }
 
@@ -142,9 +163,12 @@ impl Instruction {
             Instruction::CompareEqual => Opcode::CompareEqual,
             Instruction::BooleanNot => Opcode::BooleanNot,
             Instruction::Jump(_) => Opcode::Jump,
+            Instruction::RotateDynamic => Opcode::RotateDynamic,
+            Instruction::ExchangeDynamic => Opcode::ExchangeDynamic,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
             Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
+            Instruction::ConstU32(_) => Opcode::ConstU32,
         }
     }
 
@@ -172,6 +196,9 @@ impl Instruction {
                 buf.push(*v as u8);
             }
             Instruction::CallOuter(n) => {
+                buf.extend((*n).to_be_bytes());
+            }
+            Instruction::ConstU32(n) => {
                 buf.extend((*n).to_be_bytes());
             }
             _ => {}
@@ -225,6 +252,8 @@ impl Instruction {
                 *i += size_of::<i32>();
                 Some(Instruction::Jump(n))
             }
+            Opcode::RotateDynamic => Some(Instruction::RotateDynamic),
+            Opcode::ExchangeDynamic => Some(Instruction::ExchangeDynamic),
             Opcode::ConstString => {
                 if *i + size_of::<u16>() >= buf.len() {
                     return None;
@@ -249,6 +278,14 @@ impl Instruction {
                 let n = u16::from_be_bytes((&buf[*i..*i+size_of::<u16>()]).try_into().unwrap());
                 *i += size_of::<u16>();
                 Some(Instruction::CallOuter(n))
+            }
+            Opcode::ConstU32 => {
+                if *i + size_of::<u32>() >= buf.len() {
+                    return None;
+                }
+                let n = u32::from_be_bytes((&buf[*i..*i+size_of::<u32>()]).try_into().unwrap());
+                *i += size_of::<u32>();
+                Some(Instruction::ConstU32(n))
             }
         }
     }

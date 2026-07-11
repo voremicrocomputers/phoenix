@@ -1,4 +1,16 @@
+fn upper_function() {
+    puts("calling from upper function");
+}
+
+fn reference_test(ref: &&char) {
+    *ref = "changed";
+}
+
 fn main() {
+    fn inner_function() {
+        puts("calling from inner function");
+    }
+
     let strvar: &char = "hello world";
     {
         let strvar: &char = "hi";
@@ -22,4 +34,12 @@ fn main() {
     } else {
         puts("this should be printed");
     }
+
+    upper_function();
+    inner_function();
+
+    let test: &char = "original";
+    puts(test);
+    reference_test(&test);
+    puts(test);
 }

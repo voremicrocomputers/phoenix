@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
-use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmIfStatement, FElmVarDef, FType, Operator};
+use crate::tree::{FElm, FElmCall, FElmClosure, FElmData, FElmFunction, FElmIfStatement, FElmVarAssign, FElmVarDef, FType, Operator};
 
 pub struct VariableState {
     pub ftype: FType,
     pub ftype_ref: usize,
     pub stack_idx: usize,
+    // at any given time, argument stack position is TOP - (state.stack_idx - var.stack_idx)
+    pub is_argument: bool,
 }
 
 pub struct CompiledFunction {
@@ -52,6 +54,7 @@ pub enum CompileErrorType {
     InvalidBinaryOperator,
     InvalidExpressionInBinaryOperation,
     BinaryExpressionsAreNotOfEqualType,
+    TooManyDereferences,
 }
 
 #[derive(Debug)]
@@ -128,6 +131,9 @@ fn evaluate_constant_strings(elm: &FElm) -> Result<Vec<String>, CompileError> {
             }
 
             Ok(strings)
+        }
+        FElmData::VarAssign(vas) => {
+            evaluate_constant_strings(&vas.assign)
         }
     }
 }
@@ -232,8 +238,16 @@ fn compile_expression(
                 });
             }
 
-            instructions.push(Instruction::Rotate(variable.stack_idx as u32));
-            state.stack_idx += 1;
+            if variable.is_argument {
+                let stack_position_relative = state.stack_idx - variable.stack_idx;
+                instructions.push(Instruction::ConstU32(stack_position_relative as u32));
+                state.stack_idx += 1;
+                instructions.push(Instruction::RotateDynamic);
+                // - 1, then + 1
+            } else {
+                instructions.push(Instruction::Rotate(variable.stack_idx as u32));
+                state.stack_idx += 1;
+            }
         }
         FElmData::Call(call) => {
             let (ins, has_return_value) = compile_call(state, call, Some((expected_type, expected_typeref)))?;
@@ -404,6 +418,7 @@ fn compile_vardef(
         ftype: elm.ftype,
         ftype_ref: elm.ftype_ref,
         stack_idx: state.stack_idx,
+        is_argument: false,
     }));
 
     if let Some(assign) = &elm.assign {
@@ -412,6 +427,50 @@ fn compile_vardef(
         instructions.push(Instruction::PushEmpty);
         state.stack_idx += 1;
     }
+
+    Ok(instructions)
+}
+
+fn compile_varassign(
+    state: &mut CompilerState,
+    elm: &FElmVarAssign,
+) -> Result<Vec<Instruction>, CompileError> {
+    let mut instructions = vec![];
+
+    let osi = state.stack_idx;
+
+    // find the variable
+    let (_, var) = state.variables.iter_mut().rfind(|(v, _)| v == &elm.name)
+        .ok_or(CompileError {
+            error_type: CompileErrorType::VariableNotFound(elm.name.clone()),
+            line: state.line,
+            character: state.character,
+        })?;
+    if elm.deref_count > var.ftype_ref {
+        return Err(CompileError {
+            error_type: CompileErrorType::TooManyDereferences,
+            line: state.line,
+            character: state.character,
+        });
+    }
+    let ftype = var.ftype;
+    let ftype_ref = var.ftype_ref - elm.deref_count;
+    let stack_idx = var.stack_idx;
+    let is_argument = var.is_argument;
+
+    instructions.extend(compile_expression(state, &elm.assign, ftype, ftype_ref)?);
+    if is_argument {
+        let stack_position_relative = state.stack_idx - stack_idx;
+        instructions.push(Instruction::ConstU32(stack_position_relative as u32));
+        state.stack_idx += 1;
+        instructions.push(Instruction::ExchangeDynamic);
+        state.stack_idx -= 2;
+    } else {
+        instructions.push(Instruction::Exchange(stack_idx as u32));
+        state.stack_idx -= 1;
+    }
+
+    assert_eq!(osi, state.stack_idx);
 
     Ok(instructions)
 }
@@ -516,6 +575,9 @@ fn compile_closure(
             FElmData::IfStatement(ifst) => {
                 instructions.extend(compile_if_statement(state, functions, ifst)?);
             }
+            FElmData::VarAssign(vas) => {
+                instructions.extend(compile_varassign(state, vas)?);
+            }
             /*
             FElmData::NumberLiteral(_) => {}
             FElmData::StringLiteral(_) => {}
@@ -566,6 +628,20 @@ fn compile_function(
     toplevel: bool,
 ) -> Result<(), CompileError> {
     let unique_label = unique_function_name(&elm.label, elm_id);
+
+    let osi = state.stack_idx;
+    let variable_state_index = state.variables.len();
+
+    for arg in elm.args.iter() {
+        state.variables.push((arg.name.clone(), VariableState {
+            ftype: arg.ftype,
+            ftype_ref: arg.ftype_ref,
+            stack_idx: state.stack_idx,
+            is_argument: true,
+        }));
+        state.stack_idx += 1;
+    }
+
     let func = CompiledFunction {
         label: elm.label.clone(),
         id: elm_id as u64,
@@ -591,6 +667,11 @@ fn compile_function(
         },
     };
     functions.insert(unique_label, func);
+
+    state.stack_idx -= elm.args.len();
+    let _ = state.variables.split_off(variable_state_index);
+
+    assert_eq!(state.stack_idx, osi);
 
     Ok(())
 }

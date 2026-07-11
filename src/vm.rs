@@ -12,6 +12,7 @@ pub enum PCell {
     Blank,
     String(String),
     Boolean(bool),
+    U32(u32),
 }
 
 #[derive(Debug)]
@@ -175,6 +176,28 @@ impl<'a> PhoenixVMState<'a> {
                 } else if outer_func.returns_value {
                     return Err(VMError::OuterFuncDidNotReturnValue(n));
                 }
+            }
+            Instruction::RotateDynamic => {
+                let n = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                if let PCell::U32(n) = n {
+                    let alpha = self.stack.get(self.stack.len() - 1 - n as usize).ok_or(VMError::StackEmpty)?.clone();
+                    self.stack.push(alpha);
+                } else {
+                    return Err(VMError::ExpectedStackElementOfType("u32", n));
+                }
+            }
+            Instruction::ExchangeDynamic => {
+                let n = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                if let PCell::U32(n) = n {
+                    let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                    let stack_size = self.stack.len();
+                    *self.stack.get_mut(stack_size - 1 - n as usize).ok_or(VMError::StackEmpty)? = alpha;
+                } else {
+                    return Err(VMError::ExpectedStackElementOfType("u32", n));
+                }
+            }
+            Instruction::ConstU32(n) => {
+                self.stack.push(PCell::U32(n));
             }
         }
         Ok(())

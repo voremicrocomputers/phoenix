@@ -199,17 +199,20 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
             continue;
         }
         if let Some(c2) = chars.pop_front() {
-            if let Some(token) = double_token(c, c2) {
-                tokens.push(Token {
-                    data: token,
-                    line,
-                    character,
-                });
-                character += 1;
-                continue;
-            } else {
-                chars.push_front(c2);
+            if let Some(c3) = chars.get(0) {
+                if c3.is_whitespace() {
+                    if let Some(token) = double_token(c, c2) {
+                        tokens.push(Token {
+                            data: token,
+                            line,
+                            character,
+                        });
+                        character += 1;
+                        continue;
+                    }
+                }
             }
+            chars.push_front(c2); // only case where we don't need to do this is blocked by a continue
         }
 
         if let Some(token) = single_token(c) {
