@@ -8,6 +8,7 @@ pub enum FType {
     BadType,
     Void,
     Char,
+    String,
     Usize,
     Isize,
     Boolean,
@@ -18,6 +19,7 @@ impl FType {
         match lit {
             "void" => FType::Void,
             "char" => FType::Char,
+            "string" => FType::String,
             "usize" => FType::Usize,
             "isize" => FType::Isize,
             "bool" => FType::Boolean,

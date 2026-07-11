@@ -156,7 +156,7 @@ fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)
             todo!("numlit")
         }
         FElmData::StringLiteral(_) => {
-            Some((FType::Char, 1))
+            Some((FType::String, 0))
         }
         FElmData::CharLiteral(_) => {
             Some((FType::Char, 0))
@@ -164,7 +164,7 @@ fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)
         FElmData::VarRef(var) => {
             let variable_idx = state.variables.iter().rposition(|v| v.0 == var.value)?;
             let (_, variable) = state.variables.get(variable_idx).unwrap();
-            Some((variable.ftype, variable.ftype_ref))
+            Some((variable.ftype, variable.ftype_ref + var.ref_count - var.deref_count))
         }
         FElmData::UnaryExpression(felm) => {
             evaluate_type(state, &felm.alpha)
@@ -180,6 +180,7 @@ fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)
 /// THIS SHOULD ALWAYS LEAVE STACK IDX AS ORIGINAL STACK IDX + 1
 fn compile_expression(
     state: &mut CompilerState,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElm,
     expected_type: FType,
     expected_typeref: usize,
@@ -205,9 +206,9 @@ fn compile_expression(
         }
         FElmData::NumberLiteral(_) => { todo!() }
         FElmData::StringLiteral(str) => {
-            if !(expected_type == FType::Char && expected_typeref == 1) {
+            if !(expected_type == FType::String && expected_typeref == 0) {
                 return Err(CompileError {
-                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::Char, 1)),
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::String, 0)),
                     line: state.line,
                     character: state.character,
                 })
@@ -230,7 +231,7 @@ fn compile_expression(
                     character: state.character,
                 })?;
             let (_, variable) = state.variables.get(variable_idx).unwrap();
-            if !(expected_type == variable.ftype && expected_typeref == variable.ftype_ref) {
+            if !(expected_type == variable.ftype && expected_typeref == variable.ftype_ref + var.ref_count - var.deref_count) {
                 return Err(CompileError {
                     error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (variable.ftype, variable.ftype_ref)),
                     line: state.line,
@@ -238,19 +239,30 @@ fn compile_expression(
                 });
             }
 
-            if variable.is_argument {
+            if var.ref_count == 0 {
                 let stack_position_relative = state.stack_idx - variable.stack_idx;
                 instructions.push(Instruction::ConstU32(stack_position_relative as u32));
                 state.stack_idx += 1;
-                instructions.push(Instruction::RotateDynamic);
+                if var.ref_count == 0 {
+                    instructions.push(Instruction::RotateDynamic);
+                }
                 // - 1, then + 1
             } else {
-                instructions.push(Instruction::Rotate(variable.stack_idx as u32));
+                instructions.push(Instruction::ConstU32((state.stack_idx - variable.stack_idx) as u32));
                 state.stack_idx += 1;
+            }
+
+            if var.deref_count > 0 {
+                instructions.push(Instruction::RotateDynamic);
+                instructions.push(Instruction::ConstU32(((state.stack_idx - 1) - variable.stack_idx) as u32));
+                state.stack_idx += 1;
+                instructions.push(Instruction::AddU32);
+                state.stack_idx -= 1;
+                instructions.push(Instruction::RotateDynamic);
             }
         }
         FElmData::Call(call) => {
-            let (ins, has_return_value) = compile_call(state, call, Some((expected_type, expected_typeref)))?;
+            let (ins, has_return_value) = compile_call(state, functions, call, Some((expected_type, expected_typeref)))?;
             assert!(has_return_value);
             instructions.extend(ins);
         }
@@ -264,7 +276,7 @@ fn compile_expression(
             }
 
             if una.operator == Operator::Not {
-                instructions.extend(compile_expression(state, &una.alpha, expected_type, expected_typeref)?);
+                instructions.extend(compile_expression(state, functions, &una.alpha, expected_type, expected_typeref)?);
                 instructions.push(Instruction::BooleanNot);
             } else {
                 return Err(CompileError {
@@ -294,8 +306,8 @@ fn compile_expression(
                             character: state.character,
                         });
                     }
-                    instructions.extend(compile_expression(state, &bina.alpha, first_type.0, first_type.1)?);
-                    instructions.extend(compile_expression(state, &bina.beta, first_type.0, first_type.1)?);
+                    instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
+                    instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
                     instructions.push(Instruction::CompareEqual);
                     state.stack_idx -= 2;
                     state.stack_idx += 1;
@@ -348,14 +360,14 @@ fn compile_expression(
 
 fn compile_if_statement(
     state: &mut CompilerState,
-    functions: &mut BTreeMap<String, CompiledFunction>,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmIfStatement,
 ) -> Result<Vec<Instruction>, CompileError> {
     let mut instructions = vec![];
 
     let osi = state.stack_idx;
 
-    instructions.extend(compile_expression(state, &elm.condition, FType::Boolean, 0)?);
+    instructions.extend(compile_expression(state, functions, &elm.condition, FType::Boolean, 0)?);
 
     let add_one_to_branch = if let Some(otherwise) = &elm.otherwise {
         matches!(&otherwise.data, FElmData::Closure(_))
@@ -409,6 +421,7 @@ fn compile_if_statement(
 
 fn compile_vardef(
     state: &mut CompilerState,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmVarDef,
 ) -> Result<Vec<Instruction>, CompileError> {
     let mut instructions = vec![];
@@ -422,7 +435,7 @@ fn compile_vardef(
     }));
 
     if let Some(assign) = &elm.assign {
-        instructions.extend(compile_expression(state, assign, elm.ftype, elm.ftype_ref)?);
+        instructions.extend(compile_expression(state, functions, assign, elm.ftype, elm.ftype_ref)?);
     } else {
         instructions.push(Instruction::PushEmpty);
         state.stack_idx += 1;
@@ -433,6 +446,7 @@ fn compile_vardef(
 
 fn compile_varassign(
     state: &mut CompilerState,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmVarAssign,
 ) -> Result<Vec<Instruction>, CompileError> {
     let mut instructions = vec![];
@@ -458,17 +472,20 @@ fn compile_varassign(
     let stack_idx = var.stack_idx;
     let is_argument = var.is_argument;
 
-    instructions.extend(compile_expression(state, &elm.assign, ftype, ftype_ref)?);
-    if is_argument {
-        let stack_position_relative = state.stack_idx - stack_idx;
-        instructions.push(Instruction::ConstU32(stack_position_relative as u32));
+    instructions.extend(compile_expression(state, functions, &elm.assign, ftype, ftype_ref)?);
+    let stack_position_relative = state.stack_idx - stack_idx;
+    instructions.push(Instruction::ConstU32(stack_position_relative as u32)); // bring the variable to the top
+    state.stack_idx += 1;
+    if elm.deref_count > 0 {
+        // the variable at the top is a pointer that needs to be modified to point to the correct area
+        instructions.push(Instruction::RotateDynamic); // copy the original pointer, <og ptr>, <add to ptr>
+        instructions.push(Instruction::ConstU32(stack_position_relative as u32)); // bring the variable to the top
         state.stack_idx += 1;
-        instructions.push(Instruction::ExchangeDynamic);
-        state.stack_idx -= 2;
-    } else {
-        instructions.push(Instruction::Exchange(stack_idx as u32));
+        instructions.push(Instruction::AddU32); // combine
         state.stack_idx -= 1;
     }
+    instructions.push(Instruction::ExchangeDynamic);
+    state.stack_idx -= 2;
 
     assert_eq!(osi, state.stack_idx);
 
@@ -478,6 +495,7 @@ fn compile_varassign(
 /// boolean indicates if this call returns something
 fn compile_call(
     state: &mut CompilerState,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmCall,
     expected_type: Option<(FType, usize)>,
 ) -> Result<(Vec<Instruction>, bool), CompileError> {
@@ -486,7 +504,51 @@ fn compile_call(
     let original_stack_idx = state.stack_idx;
 
     if let Some((label, elm_id, ftype)) = state.scope_functions.iter().rfind(|(name, _, _)| name == &elm.label) {
-        todo!("implement function calls")
+        // get true label
+        let unique_label = unique_function_name(label, *elm_id);
+        let (idx, (_, func)) = functions.iter().enumerate().find(|(_, (v, _))| v == &unique_label).ok_or(CompileError {
+            error_type: CompileErrorType::VariableNotFound(unique_label.clone()),
+            line: state.line,
+            character: state.character,
+        })?;
+        // verify arguments
+        if let Some((expected_type, expected_typeref)) = expected_type {
+            if !(expected_type == ftype.0 && expected_typeref == ftype.1) {
+                return Err(CompileError {
+                    error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (ftype.0, ftype.1)),
+                    line: state.line,
+                    character: state.character,
+                })
+            }
+        }
+        if ftype.0 != FType::Void {
+            has_return_value = true;
+        }
+        let types = func.args.iter().map(|v| (v.ftype, v.ftype_ref)).collect::<Vec<_>>();
+        for i in 0..elm.args.len() {
+            let ftype = types[i].0;
+            let ftype_ref = types[i].1;
+            let alpha = &elm.args[i];
+            instructions.extend(compile_expression(state, functions, alpha, ftype, ftype_ref)?);
+        }
+        assert_eq!(state.stack_idx, original_stack_idx + elm.args.len());
+        instructions.push(Instruction::ConstU32(idx as u32));
+        instructions.push(Instruction::Call);
+        if has_return_value {
+            // one extra stack element for return value
+            state.stack_idx += 1;
+            for _ in 0..elm.args.len() {
+                instructions.push(Instruction::Swap);
+                instructions.push(Instruction::Drop);
+                state.stack_idx -= 1;
+            }
+        } else {
+            for _ in 0..elm.args.len() {
+                instructions.push(Instruction::Drop);
+                state.stack_idx -= 1;
+            }
+        }
+
     } else if let Some((idx, (_, outer_func))) = state.outer_function_table.iter().enumerate().find(|(_, (name, _))| name == &elm.label) {
         // verify type
         if let Some((expected_type, expected_typeref)) = expected_type {
@@ -514,7 +576,7 @@ fn compile_call(
             let ftype = types[i].0;
             let ftype_ref = types[i].1;
             let alpha = &elm.args[i];
-            instructions.extend(compile_expression(state, alpha, ftype, ftype_ref)?);
+            instructions.extend(compile_expression(state, functions, alpha, ftype, ftype_ref)?);
         }
         assert_eq!(state.stack_idx, original_stack_idx + elm.args.len());
         instructions.push(Instruction::CallOuter(idx as u16));
@@ -530,7 +592,7 @@ fn compile_call(
 
 fn compile_closure(
     state: &mut CompilerState,
-    functions: &mut BTreeMap<String, CompiledFunction>,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmClosure,
 ) -> Result<Vec<Instruction>, CompileError> {
     let mut instructions = vec![];
@@ -542,6 +604,7 @@ fn compile_closure(
     for elm in &elm.instructions {
         if let FElmData::Function(func) = &elm.data {
             state.scope_functions.push((func.label.clone(), elm.id, (func.return_type, func.return_type_ref)));
+            compile_function(state, functions, func, elm.id, false)?;
         }
     }
 
@@ -551,18 +614,18 @@ fn compile_closure(
         state.line = elm.line;
         state.character = elm.character;
         match &elm.data {
-            FElmData::Function(func) => {
-                compile_function(state, functions, func, elm.id, false)?;
+            FElmData::Function(_) => {
+                // already done
             }
             FElmData::Closure(clos) => {
                 instructions.extend(compile_closure(state, functions, clos,)?);
             }
             FElmData::VarDef(vardef) => {
-                instructions.extend(compile_vardef(state, vardef)?);
+                instructions.extend(compile_vardef(state, functions, vardef)?);
             }
             FElmData::Call(call) => {
                 let osi = state.stack_idx;
-                let (ins, has_return_value) = compile_call(state, call, None)?;
+                let (ins, has_return_value) = compile_call(state, functions, call, None)?;
                 instructions.extend(ins);
                 if has_return_value {
                     assert_eq!(state.stack_idx, osi + 1);
@@ -576,7 +639,7 @@ fn compile_closure(
                 instructions.extend(compile_if_statement(state, functions, ifst)?);
             }
             FElmData::VarAssign(vas) => {
-                instructions.extend(compile_varassign(state, vas)?);
+                instructions.extend(compile_varassign(state, functions, vas)?);
             }
             /*
             FElmData::NumberLiteral(_) => {}
@@ -622,7 +685,7 @@ fn compile_closure(
 
 fn compile_function(
     state: &mut CompilerState,
-    functions: &mut BTreeMap<String, CompiledFunction>,
+    functions: &mut Vec<(String, CompiledFunction)>,
     elm: &FElmFunction,
     elm_id: usize,
     toplevel: bool,
@@ -666,7 +729,7 @@ fn compile_function(
             });
         },
     };
-    functions.insert(unique_label, func);
+    functions.push((unique_label, func));
 
     state.stack_idx -= elm.args.len();
     let _ = state.variables.split_off(variable_state_index);
@@ -688,7 +751,7 @@ pub fn compile(tree: FElm, implemented_outer_functions: Vec<(String, OuterFuncti
         stack_idx: 0,
     };
 
-    let mut functions: BTreeMap<String, CompiledFunction> = BTreeMap::new();
+    let mut functions: Vec<(String, CompiledFunction)> = Vec::new();
 
     match &tree.data {
         FElmData::Closure(closure) => {

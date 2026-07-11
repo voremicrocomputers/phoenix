@@ -14,7 +14,7 @@ fn main() {
     let (compile_of, vm_of) = ImplementedOuterFunctionBuilder::default()
         .add(
             "puts",
-            &[OuterFunctionArgument::new("string", FType::Char, 1)],
+            &[OuterFunctionArgument::new("string", FType::String, 0)],
             None,
             Box::new(
                 |args| {
@@ -30,7 +30,7 @@ fn main() {
         .add(
             "get_string",
             &[],
-            Some((FType::Char, 1)),
+            Some((FType::String, 0)),
             Box::new(
                 |_| {
                     Some(PCell::String("test string".to_string()))

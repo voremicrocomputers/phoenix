@@ -2,8 +2,10 @@ fn upper_function() {
     puts("calling from upper function");
 }
 
-fn reference_test(ref: &&char) {
-    *ref = "changed";
+fn reference_test(alpha: &string, beta: &string) {
+    let tmp: string = *alpha;
+    *alpha = *beta;
+    *beta = tmp;
 }
 
 fn main() {
@@ -11,15 +13,15 @@ fn main() {
         puts("calling from inner function");
     }
 
-    let strvar: &char = "hello world";
+    let strvar: string = "hello world";
     {
-        let strvar: &char = "hi";
+        let strvar: string = "hi";
         puts(strvar);
-        let strvar: &char = "never prints";
+        let strvar: string = "never prints";
     }
     puts(strvar);
 
-    let input_value: &char = get_string();
+    let input_value: string = get_string();
     puts("the input value was:");
     puts(input_value);
 
@@ -38,8 +40,11 @@ fn main() {
     upper_function();
     inner_function();
 
-    let test: &char = "original";
+    let test: string = "original";
+    let test2: string = "original2";
     puts(test);
-    reference_test(&test);
+    puts(test2);
+    reference_test(&test, &test2);
     puts(test);
+    puts(test2);
 }

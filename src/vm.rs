@@ -101,14 +101,6 @@ impl<'a> PhoenixVMState<'a> {
                 self.stack.push(alpha);
                 self.stack.push(beta);
             }
-            Instruction::Rotate(n) => {
-                let alpha = self.stack.get(n as usize).ok_or(VMError::StackEmpty)?.clone();
-                self.stack.push(alpha);
-            }
-            Instruction::Exchange(n) => {
-                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
-                *self.stack.get_mut(n as usize).ok_or(VMError::StackEmpty)? = alpha;
-            }
             Instruction::PushEmpty => {
                 self.stack.push(PCell::Blank);
             }
@@ -180,7 +172,7 @@ impl<'a> PhoenixVMState<'a> {
             Instruction::RotateDynamic => {
                 let n = self.stack.pop().ok_or(VMError::StackEmpty)?;
                 if let PCell::U32(n) = n {
-                    let alpha = self.stack.get(self.stack.len() - 1 - n as usize).ok_or(VMError::StackEmpty)?.clone();
+                    let alpha = self.stack.get(self.stack.len() - n as usize).ok_or(VMError::StackEmpty)?.clone();
                     self.stack.push(alpha);
                 } else {
                     return Err(VMError::ExpectedStackElementOfType("u32", n));
@@ -191,13 +183,38 @@ impl<'a> PhoenixVMState<'a> {
                 if let PCell::U32(n) = n {
                     let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
                     let stack_size = self.stack.len();
-                    *self.stack.get_mut(stack_size - 1 - n as usize).ok_or(VMError::StackEmpty)? = alpha;
+                    *self.stack.get_mut(stack_size + 1 - n as usize).ok_or(VMError::StackEmpty)? = alpha;
                 } else {
                     return Err(VMError::ExpectedStackElementOfType("u32", n));
                 }
             }
             Instruction::ConstU32(n) => {
                 self.stack.push(PCell::U32(n));
+            }
+            Instruction::Call => {
+                let function_id = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                if let PCell::U32(n) = function_id {
+                    self.function_stack.push(FunctionContext {
+                        pc: 0,
+                        function: n as usize,
+                    });
+                    self.execute()?;
+                    self.function_stack.pop();
+                } else {
+                    return Err(VMError::ExpectedStackElementOfType("u32", function_id));
+                }
+            }
+            Instruction::AddU32 => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                match (alpha, beta) {
+                    (PCell::U32(alpha), PCell::U32(beta)) => {
+                        self.stack.push(PCell::U32(alpha + beta));
+                    }
+                    (alpha, beta) => {
+                        return Err(VMError::ExpectedStackElementOfType("(u32, u32)", alpha));
+                    }
+                }
             }
         }
         Ok(())

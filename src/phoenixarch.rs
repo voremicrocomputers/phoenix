@@ -8,8 +8,6 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::Drop,
     Opcode::Dup,
     Opcode::Swap,
-    Opcode::Rotate,
-    Opcode::Exchange,
     Opcode::PushEmpty,
     Opcode::RelativeBranch,
     Opcode::CompareEqual,
@@ -17,9 +15,12 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::Jump,
     Opcode::RotateDynamic,
     Opcode::ExchangeDynamic,
+    Opcode::AddU32,
     Opcode::ConstString,
     Opcode::ConstBoolean,
+    Opcode::ConstU32,
     Opcode::CallOuter,
+    Opcode::Call,
 ];
 
 #[repr(u8)]
@@ -42,18 +43,6 @@ pub enum Opcode {
     /// -
     /// B, A
     Swap = 3,
-    /// copies an element from further down the stack to the top
-    /// Rotate( N: u32 )
-    /// A, B, ..., <element N from bottom>
-    /// -
-    /// <element N now at top>, A, B, ..., <element N from bottom>
-    Rotate = 4,
-    /// takes the top element of the stack and moves it backwards into another stack cell
-    /// Exchange( N: u32 )
-    /// A, B, ..., <element N from bottom>
-    /// -
-    /// B, ..., <element N now == A, previous value lost>
-    Exchange = 5,
     /// pushes an empty cell to the stack
     /// (intentionally left blank)
     /// -
@@ -89,6 +78,11 @@ pub enum Opcode {
     /// -
     /// A, ..., <element N now == V, previous value lost>
     ExchangeDynamic = 12,
+    /// adds two u32s
+    /// A, B
+    /// -
+    /// <A + B>
+    AddU32 = 13,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -114,6 +108,11 @@ pub enum Opcode {
     /// -
     /// <return value>
     CallOuter = 128,
+    /// calls a function with the given id, does not clean up
+    /// ID: u32, <argument N>, <argument N-1>, ..., <argument 2>, <argument 1>
+    /// -
+    /// <return value>, <argument N>, <argument N-1>, ..., <argument 2>, <argument 1>
+    Call = 129,
 }
 
 impl Opcode {
@@ -134,8 +133,6 @@ pub enum Instruction {
     Drop,
     Dup,
     Swap,
-    Rotate(u32),
-    Exchange(u32),
     PushEmpty,
     RelativeBranch(i32),
     CompareEqual,
@@ -143,10 +140,12 @@ pub enum Instruction {
     Jump(i32),
     RotateDynamic,
     ExchangeDynamic,
+    AddU32,
     ConstString(u16),
     ConstBoolean(bool),
     ConstU32(u32),
     CallOuter(u16),
+    Call,
 }
 
 impl Instruction {
@@ -156,8 +155,6 @@ impl Instruction {
             Instruction::Drop => Opcode::Drop,
             Instruction::Dup => Opcode::Dup,
             Instruction::Swap => Opcode::Swap,
-            Instruction::Rotate(_) => Opcode::Rotate,
-            Instruction::Exchange(_) => Opcode::Exchange,
             Instruction::PushEmpty => Opcode::PushEmpty,
             Instruction::RelativeBranch(_) => Opcode::RelativeBranch,
             Instruction::CompareEqual => Opcode::CompareEqual,
@@ -165,10 +162,12 @@ impl Instruction {
             Instruction::Jump(_) => Opcode::Jump,
             Instruction::RotateDynamic => Opcode::RotateDynamic,
             Instruction::ExchangeDynamic => Opcode::ExchangeDynamic,
+            Instruction::AddU32 => Opcode::AddU32,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
             Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
             Instruction::ConstU32(_) => Opcode::ConstU32,
+            Instruction::Call => Opcode::Call,
         }
     }
 
@@ -177,12 +176,6 @@ impl Instruction {
 
         buf.push(self.opcode() as u8);
         match self {
-            Instruction::Rotate(n) => {
-                buf.extend((*n).to_be_bytes());
-            }
-            Instruction::Exchange(n) => {
-                buf.extend((*n).to_be_bytes());
-            }
             Instruction::RelativeBranch(i) => {
                 buf.extend((*i).to_be_bytes());
             }
@@ -217,22 +210,6 @@ impl Instruction {
             Opcode::Drop => Some(Instruction::Drop),
             Opcode::Dup => Some(Instruction::Dup),
             Opcode::Swap => Some(Instruction::Swap),
-            Opcode::Rotate => {
-                if *i + size_of::<u32>() >= buf.len() {
-                    return None;
-                }
-                let n = u32::from_be_bytes((&buf[*i..*i+size_of::<u32>()]).try_into().unwrap());
-                *i += size_of::<u32>();
-                Some(Instruction::Rotate(n))
-            }
-            Opcode::Exchange => {
-                if *i + size_of::<u32>() >= buf.len() {
-                    return None;
-                }
-                let n = u32::from_be_bytes((&buf[*i..*i+size_of::<u32>()]).try_into().unwrap());
-                *i += size_of::<u32>();
-                Some(Instruction::Exchange(n))
-            }
             Opcode::PushEmpty => Some(Instruction::PushEmpty),
             Opcode::RelativeBranch => {
                 if *i + size_of::<i32>() >= buf.len() {
@@ -254,6 +231,7 @@ impl Instruction {
             }
             Opcode::RotateDynamic => Some(Instruction::RotateDynamic),
             Opcode::ExchangeDynamic => Some(Instruction::ExchangeDynamic),
+            Opcode::AddU32 => Some(Instruction::AddU32),
             Opcode::ConstString => {
                 if *i + size_of::<u16>() >= buf.len() {
                     return None;
@@ -287,6 +265,7 @@ impl Instruction {
                 *i += size_of::<u32>();
                 Some(Instruction::ConstU32(n))
             }
+            Opcode::Call => Some(Instruction::Call),
         }
     }
 }
