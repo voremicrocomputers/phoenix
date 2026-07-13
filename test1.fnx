@@ -1,11 +1,11 @@
-fn upper_function() {
-    puts("calling from upper function");
-}
-
-fn reference_test(alpha: &string, beta: &string) {
+fn swap_string(alpha: &string, beta: &string) {
     let tmp: string = *alpha;
     *alpha = *beta;
     *beta = tmp;
+}
+
+fn reference_test(alpha: &string, beta: &string) {
+    swap_string(alpha, beta);
 }
 
 fn main() {

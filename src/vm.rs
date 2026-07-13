@@ -172,7 +172,7 @@ impl<'a> PhoenixVMState<'a> {
             Instruction::RotateDynamic => {
                 let n = self.stack.pop().ok_or(VMError::StackEmpty)?;
                 if let PCell::U32(n) = n {
-                    let alpha = self.stack.get(self.stack.len() - n as usize).ok_or(VMError::StackEmpty)?.clone();
+                    let alpha = self.stack.get(n as usize).ok_or(VMError::StackEmpty)?.clone();
                     self.stack.push(alpha);
                 } else {
                     return Err(VMError::ExpectedStackElementOfType("u32", n));
@@ -182,8 +182,7 @@ impl<'a> PhoenixVMState<'a> {
                 let n = self.stack.pop().ok_or(VMError::StackEmpty)?;
                 if let PCell::U32(n) = n {
                     let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
-                    let stack_size = self.stack.len();
-                    *self.stack.get_mut(stack_size + 1 - n as usize).ok_or(VMError::StackEmpty)? = alpha;
+                    *self.stack.get_mut(n as usize).ok_or(VMError::StackEmpty)? = alpha;
                 } else {
                     return Err(VMError::ExpectedStackElementOfType("u32", n));
                 }
@@ -209,7 +208,23 @@ impl<'a> PhoenixVMState<'a> {
                 let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
                 match (alpha, beta) {
                     (PCell::U32(alpha), PCell::U32(beta)) => {
-                        self.stack.push(PCell::U32(alpha + beta));
+                        self.stack.push(PCell::U32(alpha.wrapping_add(beta)));
+                    }
+                    (alpha, beta) => {
+                        return Err(VMError::ExpectedStackElementOfType("(u32, u32)", alpha));
+                    }
+                }
+            }
+            Instruction::PushStackPointer => {
+                let stack_size = self.stack.len();
+                self.stack.push(PCell::U32(stack_size as u32));
+            }
+            Instruction::SubU32 => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                match (alpha, beta) {
+                    (PCell::U32(alpha), PCell::U32(beta)) => {
+                        self.stack.push(PCell::U32(beta.wrapping_sub(alpha)));
                     }
                     (alpha, beta) => {
                         return Err(VMError::ExpectedStackElementOfType("(u32, u32)", alpha));

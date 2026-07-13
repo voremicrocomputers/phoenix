@@ -16,9 +16,11 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::RotateDynamic,
     Opcode::ExchangeDynamic,
     Opcode::AddU32,
+    Opcode::SubU32,
     Opcode::ConstString,
     Opcode::ConstBoolean,
     Opcode::ConstU32,
+    Opcode::PushStackPointer,
     Opcode::CallOuter,
     Opcode::Call,
 ];
@@ -69,12 +71,12 @@ pub enum Opcode {
     /// (has no effect on stack)
     Jump = 10,
     /// same as Rotate, but N is taken from the top of the stack
-    /// N, A, ..., <element N from A>
+    /// N, A, ..., <element N from bottom>
     /// -
-    /// <element N copy>, A, ..., <element N from A>
+    /// <element N copy>, A, ..., <element N from bottom>
     RotateDynamic = 11,
     /// same as Exchange, but N is taken from the top of the stack
-    /// N, V, A, ..., <element N from A>
+    /// N, V, A, ..., <element N from bottom>
     /// -
     /// A, ..., <element N now == V, previous value lost>
     ExchangeDynamic = 12,
@@ -83,6 +85,11 @@ pub enum Opcode {
     /// -
     /// <A + B>
     AddU32 = 13,
+    /// subtracts top u32 from bottom u32
+    /// A, B
+    /// -
+    /// <B - A>
+    SubU32 = 14,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -101,6 +108,11 @@ pub enum Opcode {
     /// -
     /// <n>
     ConstU32 = 34,
+    /// pushes the stack pointer as a u32 to the stack
+    /// A, B, C <BOTTOM>
+    /// -
+    /// 2, A, B, C <BOTTOM>
+    PushStackPointer = 64,
     ///
     /// calls a function that was defined outside of the scope of the bytecode
     /// CallOuter( FUNC_ID: u64 )
@@ -141,9 +153,11 @@ pub enum Instruction {
     RotateDynamic,
     ExchangeDynamic,
     AddU32,
+    SubU32,
     ConstString(u16),
     ConstBoolean(bool),
     ConstU32(u32),
+    PushStackPointer,
     CallOuter(u16),
     Call,
 }
@@ -163,10 +177,12 @@ impl Instruction {
             Instruction::RotateDynamic => Opcode::RotateDynamic,
             Instruction::ExchangeDynamic => Opcode::ExchangeDynamic,
             Instruction::AddU32 => Opcode::AddU32,
+            Instruction::SubU32 => Opcode::SubU32,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
             Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
             Instruction::ConstU32(_) => Opcode::ConstU32,
+            Instruction::PushStackPointer => Opcode::PushStackPointer,
             Instruction::Call => Opcode::Call,
         }
     }
@@ -232,6 +248,7 @@ impl Instruction {
             Opcode::RotateDynamic => Some(Instruction::RotateDynamic),
             Opcode::ExchangeDynamic => Some(Instruction::ExchangeDynamic),
             Opcode::AddU32 => Some(Instruction::AddU32),
+            Opcode::SubU32 => Some(Instruction::SubU32),
             Opcode::ConstString => {
                 if *i + size_of::<u16>() >= buf.len() {
                     return None;
@@ -265,6 +282,7 @@ impl Instruction {
                 *i += size_of::<u32>();
                 Some(Instruction::ConstU32(n))
             }
+            Opcode::PushStackPointer => Some(Instruction::PushStackPointer),
             Opcode::Call => Some(Instruction::Call),
         }
     }

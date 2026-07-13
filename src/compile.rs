@@ -239,25 +239,28 @@ fn compile_expression(
                 });
             }
 
+            // get the stack pointer at the beginning of the context
+            instructions.push(Instruction::PushStackPointer);
+            instructions.push(Instruction::ConstU32(state.stack_idx as u32));
+            state.stack_idx += 2;
+            instructions.push(Instruction::SubU32); // (current stack pointer - how much we've increased the stack) = original stack pointer
+            state.stack_idx -= 1;
+
+            // get the variable pointer in "local" pointerspace
+            instructions.push(Instruction::ConstU32(variable.stack_idx as u32));
+            state.stack_idx += 1;
+
+            // add the two to get the pointer in "global" pointerspace
+            instructions.push(Instruction::AddU32);
+            state.stack_idx -= 1;
+
+            // if we don't want to reference this, then bring the value
             if var.ref_count == 0 {
-                let stack_position_relative = state.stack_idx - variable.stack_idx;
-                instructions.push(Instruction::ConstU32(stack_position_relative as u32));
-                state.stack_idx += 1;
-                if var.ref_count == 0 {
-                    instructions.push(Instruction::RotateDynamic);
-                }
-                // - 1, then + 1
-            } else {
-                instructions.push(Instruction::ConstU32((state.stack_idx - variable.stack_idx) as u32));
-                state.stack_idx += 1;
+                instructions.push(Instruction::RotateDynamic);
             }
 
+            // if we want to dereference, then rotate (maybe again)
             if var.deref_count > 0 {
-                instructions.push(Instruction::RotateDynamic);
-                instructions.push(Instruction::ConstU32(((state.stack_idx - 1) - variable.stack_idx) as u32));
-                state.stack_idx += 1;
-                instructions.push(Instruction::AddU32);
-                state.stack_idx -= 1;
                 instructions.push(Instruction::RotateDynamic);
             }
         }
@@ -470,19 +473,27 @@ fn compile_varassign(
     let ftype = var.ftype;
     let ftype_ref = var.ftype_ref - elm.deref_count;
     let stack_idx = var.stack_idx;
-    let is_argument = var.is_argument;
 
     instructions.extend(compile_expression(state, functions, &elm.assign, ftype, ftype_ref)?);
-    let stack_position_relative = state.stack_idx - stack_idx;
-    instructions.push(Instruction::ConstU32(stack_position_relative as u32)); // bring the variable to the top
+
+    // get the context pointer
+    instructions.push(Instruction::PushStackPointer);
+    instructions.push(Instruction::ConstU32(state.stack_idx as u32));
+    state.stack_idx += 2;
+    instructions.push(Instruction::SubU32);
+    state.stack_idx -= 1;
+
+    // get the variable pointer in "local" pointerspace
+    instructions.push(Instruction::ConstU32(stack_idx as u32)); // bring the variable to the top
     state.stack_idx += 1;
+
+    // add the two to get the pointer in "global" pointerspace
+    instructions.push(Instruction::AddU32);
+    state.stack_idx -= 1;
+
+    // we need to rotate to get the actual pointer
     if elm.deref_count > 0 {
-        // the variable at the top is a pointer that needs to be modified to point to the correct area
-        instructions.push(Instruction::RotateDynamic); // copy the original pointer, <og ptr>, <add to ptr>
-        instructions.push(Instruction::ConstU32(stack_position_relative as u32)); // bring the variable to the top
-        state.stack_idx += 1;
-        instructions.push(Instruction::AddU32); // combine
-        state.stack_idx -= 1;
+        instructions.push(Instruction::RotateDynamic); // copy the original pointer
     }
     instructions.push(Instruction::ExchangeDynamic);
     state.stack_idx -= 2;
@@ -694,6 +705,9 @@ fn compile_function(
 
     let osi = state.stack_idx;
     let variable_state_index = state.variables.len();
+    state.stack_idx = 0;
+
+    let mut prelude_instructions = vec![];
 
     for arg in elm.args.iter() {
         state.variables.push((arg.name.clone(), VariableState {
@@ -720,7 +734,9 @@ fn compile_function(
         instructions: if let FElmData::Closure(clos) = &elm.body.data {
             state.line = elm.body.line;
             state.character = elm.body.character;
-            compile_closure(state, functions, clos)?
+            let instructions = compile_closure(state, functions, clos)?;
+            prelude_instructions.extend(instructions);
+            prelude_instructions
         } else {
             return Err(CompileError {
                 error_type: CompileErrorType::UnexpectedElementInClosure,
@@ -731,10 +747,9 @@ fn compile_function(
     };
     functions.push((unique_label, func));
 
-    state.stack_idx -= elm.args.len();
     let _ = state.variables.split_off(variable_state_index);
 
-    assert_eq!(state.stack_idx, osi);
+    state.stack_idx = osi;
 
     Ok(())
 }
