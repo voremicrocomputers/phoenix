@@ -10,6 +10,8 @@ fn main() {
     let input = std::fs::read_to_string("test1.fnx").expect("failed to read input file");
     let tokens = tokenize::tokenize(input).expect("failed to tokenize");
     let tree = tree::make_tree(tokens).expect("failed to make tree");
+    
+    let mut state = 0;
 
     let (compile_of, vm_of) = ImplementedOuterFunctionBuilder::default()
         .add(
@@ -17,7 +19,7 @@ fn main() {
             &[OuterFunctionArgument::new("string", FType::String, 0)],
             None,
             Box::new(
-                |args| {
+                |args, state| {
                     if let Some(PCell::String(str)) = args.get(0) {
                         println!("{}", str);
                     } else {
@@ -32,8 +34,21 @@ fn main() {
             &[],
             Some((FType::String, 0)),
             Box::new(
-                |_| {
+                |_, _| {
                     Some(PCell::String("test string".to_string()))
+                }
+            )
+        )
+        .add(
+            "state_test",
+            &[],
+            None,
+            Box::new(
+                |_, state: &mut i32| {
+                    println!("state has been called {} times previously", *state);
+                    *state += 1;
+                    
+                    None
                 }
             )
         )
@@ -52,5 +67,5 @@ fn main() {
 
     let mut vm = PhoenixVMState::new(vm_of, &program);
 
-    vm.execute_function("main").expect("failed to execute main");
+    vm.execute_function("main", &mut state).expect("failed to execute main");
 }

@@ -20,6 +20,10 @@ fn main() {
         let strvar: string = "never prints";
     }
     puts(strvar);
+    
+    state_test();
+    state_test();
+    state_test();
 
     let input_value: string = get_string();
     puts("the input value was:");

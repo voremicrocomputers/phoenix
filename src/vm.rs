@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
 
-pub struct RTOuterFunction  {
+pub struct RTOuterFunction<S> {
     pub argument_count: usize,
     pub returns_value: bool,
-    pub f: Box<dyn FnMut(&[PCell]) -> Option<PCell>>,
+    pub f: Box<dyn FnMut(&[PCell], &mut S) -> Option<PCell>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -29,15 +29,15 @@ pub struct FunctionContext {
     pub function: usize,
 }
 
-pub struct PhoenixVMState<'a> {
+pub struct PhoenixVMState<'a, S> {
     pub stack: Vec<PCell>,
     pub function_stack: Vec<FunctionContext>,
-    pub outer_functions: BTreeMap<String, RTOuterFunction>,
+    pub outer_functions: BTreeMap<String, RTOuterFunction<S>>,
     pub program: &'a Program,
 }
 
-impl<'a> PhoenixVMState<'a> {
-    pub fn new(outer_functions: BTreeMap<String, RTOuterFunction>, program: &'a Program) -> PhoenixVMState<'a> {
+impl<'a, S> PhoenixVMState<'a, S> {
+    pub fn new(outer_functions: BTreeMap<String, RTOuterFunction<S>>, program: &'a Program) -> PhoenixVMState<'a, S> {
         PhoenixVMState {
             stack: vec![],
             function_stack: vec![],
@@ -52,20 +52,20 @@ impl<'a> PhoenixVMState<'a> {
         self.program = new_program;
     }
 
-    pub fn execute_function(&mut self, func: &str) -> Result<(), VMError> {
+    pub fn execute_function(&mut self, func: &str, state: &mut S) -> Result<(), VMError> {
         if let Some(idx) = self.program.toplevel_function_table.iter().find(|v| v.0 == func).map(|v| v.1).clone() {
             self.function_stack.push(FunctionContext {
                 pc: 0,
                 function: idx,
             });
-            self.execute()?;
+            self.execute(state)?;
             Ok(())
         } else {
             Err(VMError::FunctionNotFound(func.to_string()))
         }
     }
 
-    pub fn execute(&mut self) -> Result<(), VMError> {
+    pub fn execute(&mut self, state: &mut S) -> Result<(), VMError> {
         loop {
             let instruction = if let Some(ctx) = self.function_stack.last_mut() {
                 let instruction = self.program.functions[ctx.function].get(ctx.pc);
@@ -79,12 +79,12 @@ impl<'a> PhoenixVMState<'a> {
                 break;
             };
 
-            self.execute_instruction(instruction)?;
+            self.execute_instruction(instruction, state)?;
         }
         Ok(())
     }
 
-    pub fn execute_instruction(&mut self, ins: Instruction) -> Result<(), VMError> {
+    pub fn execute_instruction(&mut self, ins: Instruction, state: &mut S) -> Result<(), VMError> {
         match ins {
             Instruction::Nop => {}
             Instruction::Drop => {
@@ -160,7 +160,7 @@ impl<'a> PhoenixVMState<'a> {
                 }
                 let args = self.stack.drain(self.stack.len()-outer_func.argument_count..self.stack.len()).collect::<Vec<_>>();
                 assert_eq!(args.len(), outer_func.argument_count);
-                let ret = outer_func.f.as_mut()(&args);
+                let ret = outer_func.f.as_mut()(&args, state);
                 if let Some(ret) = ret {
                     if outer_func.returns_value {
                         self.stack.push(ret);
@@ -197,7 +197,7 @@ impl<'a> PhoenixVMState<'a> {
                         pc: 0,
                         function: n as usize,
                     });
-                    self.execute()?;
+                    self.execute(state)?;
                     self.function_stack.pop();
                 } else {
                     return Err(VMError::ExpectedStackElementOfType("u32", function_id));
