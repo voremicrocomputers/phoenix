@@ -15,6 +15,18 @@ pub enum PCell {
     U32(u32),
 }
 
+impl PCell {
+    pub fn take_string(&mut self) -> Option<String> {
+        let mut alpha = PCell::Blank;
+        std::mem::swap(self, &mut alpha);
+        if let PCell::String(str) = alpha {
+            Some(str)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum VMError {
     StackEmpty,
