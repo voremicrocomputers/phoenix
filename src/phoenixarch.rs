@@ -228,7 +228,7 @@ impl Instruction {
             Opcode::Swap => Some(Instruction::Swap),
             Opcode::PushEmpty => Some(Instruction::PushEmpty),
             Opcode::RelativeBranch => {
-                if *i + size_of::<i32>() >= buf.len() {
+                if *i + size_of::<i32>() > buf.len() {
                     return None;
                 }
                 let n = i32::from_be_bytes((&buf[*i..*i+size_of::<i32>()]).try_into().unwrap());
@@ -238,7 +238,7 @@ impl Instruction {
             Opcode::CompareEqual => Some(Instruction::CompareEqual),
             Opcode::BooleanNot => Some(Instruction::BooleanNot),
             Opcode::Jump => {
-                if *i + size_of::<i32>() >= buf.len() {
+                if *i + size_of::<i32>() > buf.len() {
                     return None;
                 }
                 let n = i32::from_be_bytes((&buf[*i..*i+size_of::<i32>()]).try_into().unwrap());
@@ -250,7 +250,7 @@ impl Instruction {
             Opcode::AddU32 => Some(Instruction::AddU32),
             Opcode::SubU32 => Some(Instruction::SubU32),
             Opcode::ConstString => {
-                if *i + size_of::<u16>() >= buf.len() {
+                if *i + size_of::<u16>() > buf.len() {
                     return None;
                 }
                 let n = u16::from_be_bytes((&buf[*i..*i+size_of::<u16>()]).try_into().unwrap());
@@ -258,7 +258,7 @@ impl Instruction {
                 Some(Instruction::ConstString(n))
             }
             Opcode::ConstBoolean => {
-                if *i + size_of::<u8>() >= buf.len() {
+                if *i + size_of::<u8>() > buf.len() {
                     return None;
                 }
                 let n = u8::from_be_bytes((&buf[*i..*i+size_of::<u8>()]).try_into().unwrap());
@@ -267,7 +267,7 @@ impl Instruction {
                 Some(Instruction::ConstBoolean(n != 0))
             }
             Opcode::CallOuter => {
-                if *i + size_of::<u16>() >= buf.len() {
+                if *i + size_of::<u16>() > buf.len() {
                     return None;
                 }
                 let n = u16::from_be_bytes((&buf[*i..*i+size_of::<u16>()]).try_into().unwrap());
@@ -275,7 +275,7 @@ impl Instruction {
                 Some(Instruction::CallOuter(n))
             }
             Opcode::ConstU32 => {
-                if *i + size_of::<u32>() >= buf.len() {
+                if *i + size_of::<u32>() > buf.len() {
                     return None;
                 }
                 let n = u32::from_be_bytes((&buf[*i..*i+size_of::<u32>()]).try_into().unwrap());
