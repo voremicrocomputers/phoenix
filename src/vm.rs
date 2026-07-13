@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use crate::phoenixarch::{Instruction, Program};
 
-pub struct RTOuterFunction<'a>  {
+pub struct RTOuterFunction  {
     pub argument_count: usize,
     pub returns_value: bool,
-    pub f: &'a mut dyn FnMut(&[PCell]) -> Option<PCell>,
+    pub f: Box<dyn FnMut(&[PCell]) -> Option<PCell>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -32,12 +32,12 @@ pub struct FunctionContext {
 pub struct PhoenixVMState<'a> {
     pub stack: Vec<PCell>,
     pub function_stack: Vec<FunctionContext>,
-    pub outer_functions: BTreeMap<String, RTOuterFunction<'a>>,
+    pub outer_functions: BTreeMap<String, RTOuterFunction>,
     pub program: &'a Program,
 }
 
 impl<'a> PhoenixVMState<'a> {
-    pub fn new(outer_functions: BTreeMap<String, RTOuterFunction<'a>>, program: &'a Program) -> PhoenixVMState<'a> {
+    pub fn new(outer_functions: BTreeMap<String, RTOuterFunction>, program: &'a Program) -> PhoenixVMState<'a> {
         PhoenixVMState {
             stack: vec![],
             function_stack: vec![],
@@ -160,7 +160,7 @@ impl<'a> PhoenixVMState<'a> {
                 }
                 let args = self.stack.drain(self.stack.len()-outer_func.argument_count..self.stack.len()).collect::<Vec<_>>();
                 assert_eq!(args.len(), outer_func.argument_count);
-                let ret = (*outer_func.f)(&args);
+                let ret = outer_func.f.as_mut()(&args);
                 if let Some(ret) = ret {
                     if outer_func.returns_value {
                         self.stack.push(ret);

@@ -10,32 +10,32 @@ fn main() {
     let input = std::fs::read_to_string("test1.fnx").expect("failed to read input file");
     let tokens = tokenize::tokenize(input).expect("failed to tokenize");
     let tree = tree::make_tree(tokens).expect("failed to make tree");
-    
-    let mut puts = |args: &[PCell]| {
-        if let Some(PCell::String(str)) = args.get(0) {
-            println!("{}", str);
-        } else {
-            eprintln!("BAD ARGS TO puts");
-        }
-        None
-    };
-    
-    let mut get_string = |_args: &[PCell]| {
-        Some(PCell::String("test string".to_string()))
-    };
 
     let (compile_of, vm_of) = ImplementedOuterFunctionBuilder::default()
         .add(
             "puts",
             &[OuterFunctionArgument::new("string", FType::String, 0)],
             None,
-            &mut puts,
+            Box::new(
+                |args| {
+                    if let Some(PCell::String(str)) = args.get(0) {
+                        println!("{}", str);
+                    } else {
+                        eprintln!("BAD ARGS TO puts");
+                    }
+                    None
+                }
+            )
         )
         .add(
             "get_string",
             &[],
             Some((FType::String, 0)),
-            &mut get_string,
+            Box::new(
+                |_| {
+                    Some(PCell::String("test string".to_string()))
+                }
+            )
         )
         .build();
 

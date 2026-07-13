@@ -26,21 +26,21 @@ impl OuterFunctionArgument {
     }
 }
 
-pub struct ImplementedOuterFunction<'a> {
+pub struct ImplementedOuterFunction {
     pub name: String,
     pub arguments: Vec<OuterFunctionArgument>,
     pub return_type: FType,
     pub return_type_ref: usize,
-    pub func: &'a mut dyn FnMut(&[PCell]) -> Option<PCell>,
+    pub func: Box<dyn FnMut(&[PCell]) -> Option<PCell>>,
 }
 
 #[derive(Default)]
-pub struct ImplementedOuterFunctionBuilder<'a> {
-    pub functions: Vec<ImplementedOuterFunction<'a>>,
+pub struct ImplementedOuterFunctionBuilder {
+    pub functions: Vec<ImplementedOuterFunction>,
 }
 
-impl<'a> ImplementedOuterFunctionBuilder<'a> {
-    pub fn add(self, name: &str, arguments: &[OuterFunctionArgument], return_type: Option<(FType, usize)>, func: &'a mut dyn FnMut(&[PCell]) -> Option<PCell>) -> Self {
+impl ImplementedOuterFunctionBuilder {
+    pub fn add(self, name: &str, arguments: &[OuterFunctionArgument], return_type: Option<(FType, usize)>, func: Box<dyn FnMut(&[PCell]) -> Option<PCell>>) -> Self {
         let mut functions = self.functions;
         functions.push(ImplementedOuterFunction {
             name: name.to_string(),
@@ -54,7 +54,7 @@ impl<'a> ImplementedOuterFunctionBuilder<'a> {
         }
     }
     
-    pub fn build(self) -> (Vec<(String, OuterFunction)>, BTreeMap<String, RTOuterFunction<'a>>) {
+    pub fn build(self) -> (Vec<(String, OuterFunction)>, BTreeMap<String, RTOuterFunction>) {
         let compile_of = self.functions.iter().map(|v| (v.name.clone(), OuterFunction {
             label: v.name.clone(),
             args: v.arguments.iter().map(|v| {
