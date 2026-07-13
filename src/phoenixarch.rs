@@ -296,6 +296,20 @@ pub struct Program {
     pub functions: Vec<Vec<Instruction>>,
 }
 
+#[derive(Debug)]
+pub enum BytecodeParseError {
+    NoMagic,
+    NoStringTableLength,
+    InvalidStringTableEntry(usize),
+    NoOuterFunctionTableLength,
+    InvalidOuterFunctionTableEntry(usize),
+    NoTopLevelFunctionTableLength,
+    InvalidTopLevelFunctionTableEntry(usize),
+    NoFunctionsLength,
+    InvalidFunction(usize),
+    InvalidInstructionInFunction(usize, usize),
+}
+
 impl Program {
     pub fn bytecode(&self) -> Vec<u8> {
         let mut buf = vec![];
@@ -331,30 +345,30 @@ impl Program {
         buf
     }
 
-    pub fn from_bytecode(buf: &[u8]) -> Option<Self> {
+    pub fn from_bytecode(buf: &[u8]) -> Result<Self, BytecodeParseError> {
         let mut i = 0;
         if i + 3 >= buf.len() {
-            return None;
+            return Err(BytecodeParseError::NoMagic);
         }
         if &buf[i..i+3] != b"FNX" {
-            return None;
+            return Err(BytecodeParseError::NoMagic);
         }
         i += 3;
 
         if i + size_of::<u16>() >= buf.len() {
-            return None;
+            return Err(BytecodeParseError::NoStringTableLength);
         }
         let string_table_len = u16::from_be_bytes((&buf[i..i+size_of::<u16>()]).try_into().unwrap());
         i += size_of::<u16>();
         let mut string_table = Vec::with_capacity(string_table_len as usize);
-        for _ in 0..string_table_len {
+        for j in 0..string_table_len {
             if i + size_of::<u16>() >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidStringTableEntry(j as usize));
             }
             let string_len = u16::from_be_bytes((&buf[i..i+size_of::<u16>()]).try_into().unwrap());
             i += size_of::<u16>();
             if i + string_len as usize >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidStringTableEntry(j as usize));
             }
             let string_bytes = &buf[i..i+(string_len as usize)];
             i += string_len as usize;
@@ -362,19 +376,19 @@ impl Program {
         }
 
         if i + size_of::<u16>() >= buf.len() {
-            return None;
+            return Err(BytecodeParseError::NoOuterFunctionTableLength);
         }
         let outer_function_table_len = u16::from_be_bytes((&buf[i..i+size_of::<u16>()]).try_into().unwrap());
         i += size_of::<u16>();
         let mut outer_function_table = Vec::with_capacity(outer_function_table_len as usize);
-        for _ in 0..outer_function_table_len {
+        for j in 0..outer_function_table_len {
             if i + size_of::<u8>() >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidOuterFunctionTableEntry(j as usize));
             }
             let string_len = u8::from_be_bytes((&buf[i..i+size_of::<u8>()]).try_into().unwrap());
             i += size_of::<u8>();
             if i + string_len as usize >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidOuterFunctionTableEntry(j as usize));
             }
             let string_bytes = &buf[i..i+(string_len as usize)];
             i += string_len as usize;
@@ -382,24 +396,24 @@ impl Program {
         }
 
         if i + size_of::<u8>() >= buf.len() {
-            return None;
+            return Err(BytecodeParseError::NoTopLevelFunctionTableLength);
         }
         let toplevel_function_table_len = u8::from_be_bytes((&buf[i..i+size_of::<u8>()]).try_into().unwrap());
         i += size_of::<u8>();
         let mut toplevel_function_table = Vec::with_capacity(toplevel_function_table_len as usize);
-        for _ in 0..toplevel_function_table_len {
+        for j in 0..toplevel_function_table_len {
             if i + size_of::<u8>() >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidTopLevelFunctionTableEntry(j as usize));
             }
             let string_len = u8::from_be_bytes((&buf[i..i+size_of::<u8>()]).try_into().unwrap());
             i += size_of::<u8>();
             if i + string_len as usize >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidTopLevelFunctionTableEntry(j as usize));
             }
             let string_bytes = &buf[i..i+(string_len as usize)];
             i += string_len as usize;
             if i + size_of::<u16>() >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidTopLevelFunctionTableEntry(j as usize));
             }
             let index = u16::from_be_bytes((&buf[i..i+size_of::<u16>()]).try_into().unwrap());
             i += size_of::<u16>();
@@ -409,24 +423,24 @@ impl Program {
         let mut functions = vec![];
         while i < buf.len() {
             if i + size_of::<u32>() >= buf.len() {
-                return None;
+                return Err(BytecodeParseError::InvalidFunction(functions.len()));
             }
             let instruction_count = u32::from_be_bytes((&buf[i..i+size_of::<u32>()]).try_into().unwrap());
             i += size_of::<u32>();
             let mut instructions = vec![];
 
-            for _ in 0..instruction_count {
+            for j in 0..instruction_count {
                 if i >= buf.len() {
-                    return None;
+                    return Err(BytecodeParseError::InvalidFunction(functions.len()));
                 }
-                let ins = Instruction::from_bytecode(buf, &mut i)?;
+                let ins = Instruction::from_bytecode(buf, &mut i).ok_or(BytecodeParseError::InvalidInstructionInFunction(functions.len(), j as usize))?;
                 instructions.push(ins);
             }
 
             functions.push(instructions);
         }
 
-        Some(Program {
+        Ok(Program {
             string_table,
             outer_function_table,
             toplevel_function_table,
