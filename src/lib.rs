@@ -31,7 +31,7 @@ pub struct ImplementedOuterFunction<S> {
     pub arguments: Vec<OuterFunctionArgument>,
     pub return_type: FType,
     pub return_type_ref: usize,
-    pub func: Box<dyn FnMut(&[PCell], &mut S) -> Option<PCell>>,
+    pub func: Box<dyn FnMut(Vec<PCell>, &mut S) -> Option<PCell>>,
 }
 
 #[derive(Default)]
@@ -40,7 +40,7 @@ pub struct ImplementedOuterFunctionBuilder<S> {
 }
 
 impl<S> ImplementedOuterFunctionBuilder<S> {
-    pub fn add(self, name: &str, arguments: &[OuterFunctionArgument], return_type: Option<(FType, usize)>, func: Box<dyn FnMut(&[PCell], &mut S) -> Option<PCell>>) -> Self {
+    pub fn add(self, name: &str, arguments: &[OuterFunctionArgument], return_type: Option<(FType, usize)>, func: Box<dyn FnMut(Vec<PCell>, &mut S) -> Option<PCell>>) -> Self {
         let mut functions = self.functions;
         functions.push(ImplementedOuterFunction {
             name: name.to_string(),

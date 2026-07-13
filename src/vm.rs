@@ -4,7 +4,7 @@ use crate::phoenixarch::{Instruction, Program};
 pub struct RTOuterFunction<S> {
     pub argument_count: usize,
     pub returns_value: bool,
-    pub f: Box<dyn FnMut(&[PCell], &mut S) -> Option<PCell>>,
+    pub f: Box<dyn FnMut(Vec<PCell>, &mut S) -> Option<PCell>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -160,7 +160,7 @@ impl<'a, S> PhoenixVMState<'a, S> {
                 }
                 let args = self.stack.drain(self.stack.len()-outer_func.argument_count..self.stack.len()).collect::<Vec<_>>();
                 assert_eq!(args.len(), outer_func.argument_count);
-                let ret = outer_func.f.as_mut()(&args, state);
+                let ret = outer_func.f.as_mut()(args, state);
                 if let Some(ret) = ret {
                     if outer_func.returns_value {
                         self.stack.push(ret);
