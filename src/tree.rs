@@ -9,8 +9,7 @@ pub enum FType {
     Void,
     Char,
     String,
-    Usize,
-    Isize,
+    U32,
     Boolean,
 }
 
@@ -20,8 +19,7 @@ impl FType {
             "void" => FType::Void,
             "char" => FType::Char,
             "string" => FType::String,
-            "usize" => FType::Usize,
-            "isize" => FType::Isize,
+            "u32" => FType::U32,
             "bool" => FType::Boolean,
             _ => FType::BadType,
         }
@@ -81,7 +79,7 @@ pub struct FElmBooleanLiteral {
 
 #[derive(Debug)]
 pub struct FElmNumberLiteral {
-    pub value: isize,
+    pub value: i64,
 }
 
 #[derive(Debug)]

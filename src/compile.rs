@@ -55,6 +55,8 @@ pub enum CompileErrorType {
     InvalidExpressionInBinaryOperation,
     BinaryExpressionsAreNotOfEqualType,
     TooManyDereferences,
+    PointerArithmeticNotCurrentlySupported,
+    NumberOutOfTypeRange,
 }
 
 #[derive(Debug)]
@@ -153,7 +155,7 @@ fn evaluate_type(state: &mut CompilerState, elm: &FElm) -> Option<(FType, usize)
             Some((FType::Boolean, 0))
         }
         FElmData::NumberLiteral(_) => {
-            todo!("numlit")
+            Some((FType::U32, 0))
         }
         FElmData::StringLiteral(_) => {
             Some((FType::String, 0))
@@ -204,7 +206,38 @@ fn compile_expression(
             instructions.push(Instruction::ConstBoolean(v.value));
             state.stack_idx += 1;
         }
-        FElmData::NumberLiteral(_) => { todo!() }
+        FElmData::NumberLiteral(num) => {
+            if expected_typeref > 0 {
+                // supposed to be a pointer i guess? let's not support this for now
+                return Err(CompileError {
+                    error_type: CompileErrorType::PointerArithmeticNotCurrentlySupported,
+                    line: state.line,
+                    character: state.character,
+                });
+            }
+            match expected_type {
+                FType::U32 => {
+                    let num = if let Some(num) = u32::try_from(num.value).ok() {
+                        num
+                    } else {
+                        return Err(CompileError {
+                            error_type: CompileErrorType::NumberOutOfTypeRange,
+                            line: state.line,
+                            character: state.character,
+                        });
+                    };
+                    instructions.push(Instruction::ConstU32(num));
+                    state.stack_idx += 1;
+                }
+                _ => {
+                    return Err(CompileError {
+                        error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::U32, 0)),
+                        line: state.line,
+                        character: state.character,
+                    });
+                }
+            }
+        }
         FElmData::StringLiteral(str) => {
             if !(expected_type == FType::String && expected_typeref == 0) {
                 return Err(CompileError {
@@ -290,25 +323,25 @@ fn compile_expression(
             }
         }
         FElmData::BinaryExpression(bina) => {
+            let first_type = evaluate_type(state, &bina.alpha).ok_or(CompileError {
+                error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
+                line: state.line,
+                character: state.character,
+            })?;
+            let second_type = evaluate_type(state, &bina.beta).ok_or(CompileError {
+                error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
+                line: state.line,
+                character: state.character,
+            })?;
+            if first_type != second_type {
+                return Err(CompileError {
+                    error_type: CompileErrorType::BinaryExpressionsAreNotOfEqualType,
+                    line: state.line,
+                    character: state.character,
+                });
+            }
             match bina.operator {
                 Operator::EQ | Operator::NotEQ => {
-                    let first_type = evaluate_type(state, &bina.alpha).ok_or(CompileError {
-                        error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
-                        line: state.line,
-                        character: state.character,
-                    })?;
-                    let second_type = evaluate_type(state, &bina.beta).ok_or(CompileError {
-                        error_type: CompileErrorType::InvalidExpressionInBinaryOperation,
-                        line: state.line,
-                        character: state.character,
-                    })?;
-                    if first_type != second_type {
-                        return Err(CompileError {
-                            error_type: CompileErrorType::BinaryExpressionsAreNotOfEqualType,
-                            line: state.line,
-                            character: state.character,
-                        });
-                    }
                     instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
                     instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
                     instructions.push(Instruction::CompareEqual);
@@ -318,9 +351,43 @@ fn compile_expression(
                         instructions.push(Instruction::BooleanNot);
                     }
                 }
+                Operator::Add => {
+                    match first_type.0 {
+                        FType::U32 => {
+                            instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
+                            instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
+                            instructions.push(Instruction::AddU32);
+                            state.stack_idx -= 2;
+                            state.stack_idx += 1;
+                        }
+                        _ => {
+                            return Err(CompileError {
+                                error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::U32, 0)),
+                                line: state.line,
+                                character: state.character,
+                            });
+                        }
+                    }
+                }
+                Operator::Sub => {
+                    match first_type.0 {
+                        FType::U32 => {
+                            instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
+                            instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
+                            instructions.push(Instruction::SubU32);
+                            state.stack_idx -= 2;
+                            state.stack_idx += 1;
+                        }
+                        _ => {
+                            return Err(CompileError {
+                                error_type: CompileErrorType::ExpressionIsNotOfExpectedType((expected_type, expected_typeref), (FType::U32, 0)),
+                                line: state.line,
+                                character: state.character,
+                            });
+                        }
+                    }
+                }
                 /*
-                Operator::Add => {}
-                Operator::Sub => {}
                 Operator::Mul => {}
                 Operator::Div => {}
                 Operator::Mod => {}

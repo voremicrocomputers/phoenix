@@ -51,4 +51,11 @@ fn main() {
     reference_test(&test, &test2);
     puts(test);
     puts(test2);
+
+    let test: u32 = 128;
+    let test2: u32 = 128;
+    test = test + test2;
+    putu32(test);
+    test = test - 64;
+    putu32(test);
 }

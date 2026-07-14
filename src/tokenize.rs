@@ -90,7 +90,7 @@ pub enum TokenData {
     // '<character>'
     CharacterLiteral(char),
     // <0-9>...
-    NumberLiteral(isize),
+    NumberLiteral(i64),
     // <A-z or _>...
     Literal(String),
 }
@@ -288,7 +288,7 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
                             break;
                         }
                     }
-                    let number: isize = digit_str.parse().expect("bad number literal somehow");
+                    let number: i64 = digit_str.parse().expect("bad number literal somehow");
                     tokens.push(Token {
                         data: TokenData::NumberLiteral(number),
                         line,

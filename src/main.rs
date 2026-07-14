@@ -30,6 +30,21 @@ fn main() {
             )
         )
         .add(
+            "putu32",
+            &[OuterFunctionArgument::new("i", FType::U32, 0)],
+            None,
+            Box::new(
+                |args, state| {
+                    if let Some(PCell::U32(i)) = args.get(0) {
+                        println!("{}", i);
+                    } else {
+                        eprintln!("BAD ARGS TO puts");
+                    }
+                    None
+                }
+            )
+        )
+        .add(
             "get_string",
             &[],
             Some((FType::String, 0)),
