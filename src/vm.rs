@@ -25,6 +25,14 @@ impl PCell {
             None
         }
     }
+
+    pub fn take_u32(&mut self) -> Option<u32> {
+        if let PCell::U32(n) = self {
+            Some(*n)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
