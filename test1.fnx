@@ -20,7 +20,7 @@ fn main() {
         let strvar: string = "never prints";
     }
     puts(strvar);
-    
+
     state_test();
     state_test();
     state_test();
@@ -31,14 +31,15 @@ fn main() {
 
     if input_value == "test string" {
         puts("the input value is what we expected");
+        input_value = "true";
     } else {
         puts("the input value is not what we expected");
     }
 
-    if input_value == "not true" {
-        puts("this should not be printed");
-    } else {
+    if input_value == "true" {
         puts("this should be printed");
+    } else {
+        puts("this should not be printed");
     }
 
     upper_function();

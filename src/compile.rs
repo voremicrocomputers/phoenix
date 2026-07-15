@@ -440,16 +440,16 @@ fn compile_if_statement(
     instructions.extend(compile_expression(state, functions, &elm.condition, FType::Boolean, 0)?);
 
     let add_one_to_branch = if let Some(otherwise) = &elm.otherwise {
-        matches!(&otherwise.data, FElmData::Closure(_))
+        matches!(&otherwise.data, FElmData::Closure(_) | FElmData::IfStatement(_))
     } else {
         false
     };
 
     if let FElmData::Closure(clos) = &elm.body.data {
         // if the boolean above is true, we want to run this code, otherwise we want to skip forward
+        state.stack_idx -= 1; // needs to be done here since the closure needs to know that the stack went down from the relbranch
         let closure_instructions = compile_closure(state, functions, clos)?;
         instructions.push(Instruction::RelativeBranch(closure_instructions.len() as i32 + if add_one_to_branch { 1 } else { 0 })); // skips forward if boolean is false
-        state.stack_idx -= 1;
         instructions.extend(closure_instructions);
     } else {
         return Err(CompileError {
@@ -462,7 +462,10 @@ fn compile_if_statement(
     if let Some(otherwise) = &elm.otherwise {
         match &otherwise.data {
             FElmData::IfStatement(ifst) => {
-                instructions.extend(compile_if_statement(state, functions, ifst)?);
+                let otherwise_instructions = compile_if_statement(state, functions, ifst)?;
+                instructions.push(Instruction::Jump(otherwise_instructions.len() as i32));
+                // this is now where we will land after the first relativebranch, if the if statement was false
+                instructions.extend(otherwise_instructions);
             }
             FElmData::Closure(clos) => {
                 // only run this code if the original code didn't execute
