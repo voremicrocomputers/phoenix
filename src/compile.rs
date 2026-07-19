@@ -387,6 +387,20 @@ fn compile_expression(
                         }
                     }
                 }
+                Operator::GreaterThan => {
+                    instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
+                    instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
+                    instructions.push(Instruction::CompareGT);
+                    state.stack_idx -= 2;
+                    state.stack_idx += 1;
+                }
+                Operator::LessThan => {
+                    instructions.extend(compile_expression(state, functions, &bina.alpha, first_type.0, first_type.1)?);
+                    instructions.extend(compile_expression(state, functions, &bina.beta, first_type.0, first_type.1)?);
+                    instructions.push(Instruction::CompareLT);
+                    state.stack_idx -= 2;
+                    state.stack_idx += 1;
+                }
                 /*
                 Operator::Mul => {}
                 Operator::Div => {}
@@ -396,8 +410,6 @@ fn compile_expression(
                 Operator::BitwiseOr => {}
                 Operator::BooleanOr => {}
                 Operator::BitwiseXor => {}
-                Operator::GreaterThan => {}
-                Operator::LessThan => {}
                 Operator::GreaterThanEqual => {}
                 Operator::LessThanEqual => {}
                  */

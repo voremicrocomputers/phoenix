@@ -251,6 +251,30 @@ impl<'a, S> PhoenixVMState<'a, S> {
                     }
                 }
             }
+            Instruction::CompareGT => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                match (alpha, beta) {
+                    (PCell::U32(alpha), PCell::U32(beta)) => {
+                        self.stack.push(PCell::Boolean(beta > alpha));
+                    }
+                    (alpha, beta) => {
+                        return Err(VMError::ExpectedStackElementOfType("(u32, u32)", alpha));
+                    }
+                }
+            }
+            Instruction::CompareLT => {
+                let alpha = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                let beta = self.stack.pop().ok_or(VMError::StackEmpty)?;
+                match (alpha, beta) {
+                    (PCell::U32(alpha), PCell::U32(beta)) => {
+                        self.stack.push(PCell::Boolean(beta < alpha));
+                    }
+                    (alpha, beta) => {
+                        return Err(VMError::ExpectedStackElementOfType("(u32, u32)", alpha));
+                    }
+                }
+            }
         }
         Ok(())
     }

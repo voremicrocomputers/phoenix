@@ -59,4 +59,15 @@ fn main() {
     putu32(test);
     test = test - 64;
     putu32(test);
+    if 12 > 13 {
+        puts("shouldn't print");
+    } else {
+        puts("should print");
+    }
+
+    if 12 < 13 {
+        puts("should print");
+    } else {
+        puts("shouldn't print");
+    }
 }

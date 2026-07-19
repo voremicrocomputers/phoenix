@@ -17,6 +17,8 @@ pub const ALL_OPCODES: &[Opcode] = &[
     Opcode::ExchangeDynamic,
     Opcode::AddU32,
     Opcode::SubU32,
+    Opcode::CompareGT,
+    Opcode::CompareLT,
     Opcode::ConstString,
     Opcode::ConstBoolean,
     Opcode::ConstU32,
@@ -90,6 +92,16 @@ pub enum Opcode {
     /// -
     /// <B - A>
     SubU32 = 14,
+    /// compares two elements and pushes the comparison result as a boolean
+    /// A, B, ...
+    /// -
+    /// if B > A then True else False, ...
+    CompareGT = 15,
+    /// compares two elements and pushes the comparison result as a boolean
+    /// A, B, ...
+    /// -
+    /// if B < A then True else False, ...
+    CompareLT = 16,
     /// loads a string constant
     /// ConstString( str: String )
     /// (intentionally left blank)
@@ -154,6 +166,8 @@ pub enum Instruction {
     ExchangeDynamic,
     AddU32,
     SubU32,
+    CompareGT,
+    CompareLT,
     ConstString(u16),
     ConstBoolean(bool),
     ConstU32(u32),
@@ -178,6 +192,8 @@ impl Instruction {
             Instruction::ExchangeDynamic => Opcode::ExchangeDynamic,
             Instruction::AddU32 => Opcode::AddU32,
             Instruction::SubU32 => Opcode::SubU32,
+            Instruction::CompareGT => Opcode::CompareGT,
+            Instruction::CompareLT => Opcode::CompareLT,
             Instruction::ConstString(_) => Opcode::ConstString,
             Instruction::CallOuter(_) => Opcode::CallOuter,
             Instruction::ConstBoolean(_) => Opcode::ConstBoolean,
@@ -249,6 +265,8 @@ impl Instruction {
             Opcode::ExchangeDynamic => Some(Instruction::ExchangeDynamic),
             Opcode::AddU32 => Some(Instruction::AddU32),
             Opcode::SubU32 => Some(Instruction::SubU32),
+            Opcode::CompareGT => Some(Instruction::CompareGT),
+            Opcode::CompareLT => Some(Instruction::CompareLT),
             Opcode::ConstString => {
                 if *i + size_of::<u16>() > buf.len() {
                     return None;
