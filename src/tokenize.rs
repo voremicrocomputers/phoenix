@@ -188,7 +188,31 @@ pub fn tokenize(input: String) -> Result<Vec<Token>, TokenizeError> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().collect::<VecDeque<char>>();
 
+    let mut comment = false;
+    let mut last_was_fslash = false;
+
     while let Some(c) = chars.pop_front() {
+        if comment {
+            if c == '\n' {
+                comment = false;
+                line += 1;
+                character = 0;
+            }
+            continue;
+        }
+        if c == '/' {
+            if last_was_fslash {
+                tokens.pop();
+                last_was_fslash = false;
+                comment = true;
+                continue;
+            } else {
+                last_was_fslash = true;
+            }
+        } else {
+            last_was_fslash = false;
+        }
+
         if c == '\n' {
             line += 1;
             character = 0;

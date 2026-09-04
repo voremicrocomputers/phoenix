@@ -9,17 +9,20 @@ fn reference_test(alpha: &string, beta: &string) {
 }
 
 fn main() {
+    // comment test
     fn inner_function() {
+        // comment test 2
         puts("calling from inner function");
     }
 
     let strvar: string = "hello world";
     {
+        // comment test 2
         let strvar: string = "hi";
         puts(strvar);
         let strvar: string = "never prints";
     }
-    puts(strvar);
+    puts(strvar); // comment test 3
 
     state_test();
     state_test();
